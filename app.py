@@ -20,6 +20,9 @@ st.markdown("""
     .stButton>button:hover { background-color: #F1C40F; color: #000000; }
     div[data-testid="metric-container"] { background-color: #1a1a1a; border: 1px solid #D4AF37; padding: 15px; border-radius: 8px; }
     hr { border-color: #D4AF37; opacity: 0.3; }
+    table { width: 100%; text-align: center; border-collapse: collapse; margin-bottom: 20px; }
+    th { border-bottom: 2px solid #D4AF37; color: #D4AF37; padding: 10px; }
+    td { border-bottom: 1px solid #333; padding: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -31,12 +34,16 @@ if 'carteira_comparacao' not in st.session_state:
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+def formatar_percentual(valor):
+    sinal = "+" if valor >= 0 else ""
+    return f"{sinal}{valor*100:.2f}%"
+
 def exportar_codigo_carteira(carteira_dict):
     if not carteira_dict: return ""
     cart_copy = {}
     for k, v in carteira_dict.items():
         v_copy = v.copy()
-        if isinstance(v_copy.get('data_compra'), datetime):
+        if isinstance(v_copy.get('data_compra'), datetime) or hasattr(v_copy.get('data_compra'), 'strftime'):
             v_copy['data_compra'] = v_copy['data_compra'].strftime('%Y-%m-%d')
         else:
             v_copy['data_compra'] = str(v_copy['data_compra'])
@@ -80,10 +87,14 @@ def fetch_br_indicators(codigo, start_date):
         return pd.Series(dtype=float)
 
 def calcular_metricas(ret_p, ret_m, cdi_s):
-    if ret_p.empty or ret_m.empty: return [0]*8
+    if ret_p.empty: return [0]*8
+    if ret_m.empty: ret_m = pd.Series(0, index=ret_p.index)
+    if cdi_s.empty: cdi_s = pd.Series(0, index=ret_p.index)
+    
     df = pd.concat([ret_p, ret_m, cdi_s], axis=1).dropna()
     if df.empty: return [0]*8
     rp, rm, rf = df.iloc[:,0], df.iloc[:,1], df.iloc[:,2]
+    
     ret_acum = (1 + rp).prod() - 1
     vol = rp.std() * np.sqrt(252)
     excesso_diario = rp - rf
@@ -135,6 +146,77 @@ def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, 
     ret_sem = (ret_ativos_s[tickers_v] * pesos).sum(axis=1)
     return ret_com, ret_sem
 
+def calcular_retorno_individual(ticker, config, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, reinvest_flag):
+    data_c = pd.to_datetime(config['data_compra'])
+    if config['tipo'] == 'RV':
+        df_uso = df_rv_c if reinvest_flag else df_rv_s
+        if ticker in df_uso.columns:
+            r = df_uso[ticker].reindex(idx_m).ffill().bfill().pct_change().fillna(0)
+            r[r.index < data_c] = 0.0
+            return (1 + r).prod() - 1
+    elif config['tipo'] == 'RF':
+        if config['indexador'] == "Prefixado": r_d = (1 + config['taxa'])**(1/252) - 1
+        elif config['indexador'] == "CDI": r_d = cdi_al * config['taxa']
+        elif config['indexador'] == "IPCA+": r_d = (1 + ipca_al) * (1 + config['taxa'])**(1/252) - 1
+        r = pd.Series(r_d, index=idx_m)
+        r[r.index < data_c] = 0.0
+        return (1 + r).prod() - 1
+    return 0.0
+
+def plot_markowitz(ativos_dict, df_rv_c, df_rv_s, cdi_al, idx_m, reinvestir_flag):
+    ativos_rv_validos = [k for k, v in ativos_dict.items() if v['tipo'] == 'RV']
+    if len(ativos_rv_validos) < 2:
+        st.warning("Adicione pelo menos 2 ativos de Renda Variável para simular a Fronteira Eficiente.")
+        return
+        
+    with st.spinner("Simulando 5.000 portfólios..."):
+        ret_ativos = pd.DataFrame(index=idx_m)
+        for t in ativos_rv_validos:
+            r = df_rv_c[t] if reinvestir_flag else df_rv_s[t]
+            rc = r.reindex(idx_m).ffill().bfill().pct_change().fillna(0)
+            data_c = pd.to_datetime(ativos_dict[t]['data_compra'])
+            rc[rc.index < data_c] = 0.0
+            ret_ativos[t] = rc
+            
+        ret_medios = ret_ativos.mean() * 252
+        cov_mat = ret_ativos.cov() * 252
+        num_portfolios = 5000
+        resultados = np.zeros((3, num_portfolios))
+        cdi_anualizado_medio = ((1 + cdi_al).prod() ** (252 / len(cdi_al)) - 1) if len(cdi_al) > 0 else 0.105
+        
+        for i in range(num_portfolios):
+            pesos = np.random.random(len(ativos_rv_validos))
+            pesos /= np.sum(pesos)
+            ret_esp = np.sum(pesos * ret_medios)
+            vol_esp = np.sqrt(np.dot(pesos.T, np.dot(cov_mat, pesos)))
+            resultados[0,i] = ret_esp
+            resultados[1,i] = vol_esp
+            resultados[2,i] = (ret_esp - cdi_anualizado_medio) / vol_esp if vol_esp > 0 else 0
+            
+        df_ef = pd.DataFrame(resultados.T, columns=['Retorno', 'Volatilidade', 'Sharpe'])
+        idx_max = df_ef['Sharpe'].idxmax()
+        p_max = df_ef.iloc[idx_max]
+        
+        fig = px.scatter(df_ef, x='Volatilidade', y='Retorno', color='Sharpe', color_continuous_scale='Viridis', opacity=0.8)
+        fig.add_trace(go.Scatter(x=[p_max['Volatilidade']], y=[p_max['Retorno']], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='Máximo Sharpe'))
+        fig.update_layout(xaxis_title="Volatilidade Anual", yaxis_title="Retorno Anual", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+        st.plotly_chart(fig, use_container_width=True)
+
+def plot_var_histogram(ret_port, title="Distribuição de Retornos Diários", line_color="red"):
+    var_5 = np.percentile(ret_port, 5)
+    fig = px.histogram(ret_port, nbins=50, title=title)
+    fig.add_vline(x=var_5, line_dash="dash", line_color=line_color, annotation_text=f"VaR 5% = {var_5:.4f}")
+    fig.update_layout(xaxis_title="Retorno Diário", yaxis_title="Densidade", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+    st.plotly_chart(fig, use_container_width=True)
+
+def compara_metrica(val_p, val_c, is_higher_better=True, is_pct=True):
+    vp_str = f"{val_p:.2%}" if is_pct else f"{val_p:.2f}"
+    vc_str = f"{val_c:.2%}" if is_pct else f"{val_c:.2f}"
+    if val_p == val_c: return vp_str, vc_str, "Empate"
+    win = val_p > val_c if is_higher_better else val_p < val_c
+    if win: return f"⭐ {vp_str}", vc_str, "Principal"
+    else: return vp_str, f"⭐ {vc_str}", "Comparada"
+
 # --- 3. BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configuração Principal")
@@ -149,29 +231,29 @@ with st.sidebar:
         
     data_inicio = col_dt.date_input("Data Inicial", value=datetime(2012,1,1), min_value=datetime(1900,1,1), max_value=datetime.today())
     
-    with st.expander("📊 Parâmetros de Mercado & Visualização", expanded=False):
-        benchmark_sel = st.selectbox("Benchmark", [
-            "Ibovespa", "IFIX", "S&P 500", "NASDAQ", "SMLL (Small Caps)", "Ouro", "IPCA + Taxa", "CDI (Percentual)", "Selic"
-        ])
+    with st.expander("📊 Parâmetros de Mercado & Benchmarks", expanded=False):
+        opcoes_bench = ["Ibovespa", "IFIX", "S&P 500", "NASDAQ", "SMLL (Small Caps)", "Ouro", "IPCA + Taxa", "CDI (Percentual)", "Selic"]
+        benchmarks_sel = st.multiselect("Selecione os Benchmarks de Comparação:", opcoes_bench, default=["Ibovespa"])
         
         taxa_ipca_bench, taxa_cdi_bench = 0.06, 1.0
-        if benchmark_sel == "IPCA + Taxa":
+        if "IPCA + Taxa" in benchmarks_sel:
             taxa_ipca_bench = st.number_input("Taxa Fixa do IPCA+ (%)", value=6.0, step=0.1) / 100
-        elif benchmark_sel == "CDI (Percentual)":
+        if "CDI (Percentual)" in benchmarks_sel:
             taxa_cdi_bench = st.number_input("Percentual do CDI (%)", value=100.0, step=1.0) / 100
             
         c_taxa1, c_taxa2 = st.columns(2)
-        cdi_base = c_taxa1.number_input("CDI Base (%)", value=10.5, step=0.1) / 100
-        ipca_base = c_taxa2.number_input("IPCA Base (%)", value=4.5, step=0.1) / 100
-        reinvestir = st.checkbox("Reinvestir Dividendos (Gráficos)", value=True)
+        cdi_base = c_taxa1.number_input("CDI Base Global (%)", value=10.5, step=0.1) / 100
+        ipca_base = c_taxa2.number_input("IPCA Base Global (%)", value=4.5, step=0.1) / 100
+        reinvestir = st.checkbox("Reinvestir Dividendos na Carteira Principal", value=True)
         
-    with st.expander("🔗 Compartilhamento de Carteiras", expanded=False):
+    with st.expander("🔗 Compartilhamento & Comparação", expanded=False):
         st.markdown("<span style='font-size:0.85em; opacity:0.8;'>Copie o código abaixo para compartilhar sua alocação:</span>", unsafe_allow_html=True)
         codigo_export = exportar_codigo_carteira(st.session_state.carteira)
-        st.code(codigo_export if codigo_export else "Adicione ativos para gerar o código.")
+        st.code(codigo_export if codigo_export else "Adicione ativos para gerar.")
         
         st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
-        codigo_import = st.text_input("Código de Comparação:", placeholder="Cole o código do colega aqui...")
+        codigo_import = st.text_input("Código de Comparação:", placeholder="Cole o código do colega...")
+        reinvestir_comp = st.checkbox("Reinvestir Div. (Carteira Importada)", value=True)
         if st.button("Carregar Comparação", use_container_width=True):
             cart_importada = importar_codigo_carteira(codigo_import)
             if cart_importada:
@@ -192,7 +274,7 @@ with st.sidebar:
     if classe_ativo == "Renda Variável":
         st.warning("⚠️ Ativos listados na B3 exigem o final **.SA** (ex: VALE3.SA).")
         c_rv1, c_rv2 = st.columns(2)
-        ticker = c_rv1.text_input("Ticker", help="Ex: PETR4.SA, AAPL").upper().strip()
+        ticker = c_rv1.text_input("Ticker", help="Ex: PETR4.SA").upper().strip()
         aporte_val = c_rv2.number_input("Peso/Valor", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
         comprado_inicio_rv = st.checkbox("Desde o Início?", value=True, key="chk_rv")
         data_compra_rv = data_inicio if comprado_inicio_rv else st.date_input("Comprado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rv")
@@ -201,18 +283,32 @@ with st.sidebar:
             st.rerun()
     else:
         nome_rf = st.text_input("Nome do Título").strip()
-        c_rf1, c_rf2, c_rf3 = st.columns([1.5, 1, 1])
+        c_rf1, c_rf2, c_rf3 = st.columns([1.5, 1.5, 1])
         tipo_rf = c_rf1.selectbox("Indexador", ["Prefixado", "CDI", "IPCA+"])
-        if tipo_rf == "CDI": val_def = 110.0
-        elif tipo_rf == "IPCA+": val_def = 6.0
-        else: val_def = 10.0
-        taxa = c_rf2.number_input("Taxa (%)", value=val_def, step=0.1) / 100
+        
+        if tipo_rf == "CDI":
+            menos_100 = c_rf1.checkbox("Menos de 100% do CDI?")
+            if menos_100:
+                taxa_input = c_rf2.number_input("Taxa (% do CDI)", value=90.0, step=1.0)
+                taxa = taxa_input / 100
+            else:
+                taxa_input = c_rf2.number_input("100% + qual %? (Ex: 10 = 110%)", value=10.0, step=1.0)
+                taxa = (100 + taxa_input) / 100
+        elif tipo_rf == "IPCA+":
+            taxa_input = c_rf2.number_input("Qual o + do IPCA? (%)", value=6.0, step=0.1, help="Insira apenas a taxa fixa acima do IPCA. Ex: 6.0 para IPCA+6%")
+            taxa = taxa_input / 100
+        else:
+            taxa_input = c_rf2.number_input("Taxa Prefixada ao ano (%)", value=10.0, step=0.1)
+            taxa = taxa_input / 100
+            
         aporte_val_rf = c_rf3.number_input("Peso/Valor", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
         comprado_inicio_rf = st.checkbox("Desde o Início?", value=True, key="chk_rf")
         data_compra_rf = data_inicio if comprado_inicio_rf else st.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rf")
+        
         if st.button("Inserir Renda Fixa") and nome_rf:
             st.session_state.carteira[nome_rf] = {'tipo': 'RF', 'indexador': tipo_rf, 'taxa': taxa, 'aporte': aporte_val_rf, 'data_compra': data_compra_rf}
             st.rerun()
+            
     if st.button("🗑️ Limpar Carteira Principal"):
         st.session_state.carteira = {}
         st.rerun()
@@ -224,30 +320,23 @@ if not st.session_state.carteira:
     st.markdown("""
     <div style="background-color: rgba(212, 175, 55, 0.1); border-left: 5px solid #D4AF37; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
         <h4 style="color: #D4AF37; margin-top: 0;">📌 Diretrizes Operacionais do Sistema</h4>
-        Para garantir a precisão da extração de dados e a integridade das modelagens financeiras, é estritamente necessário utilizar o sufixo <b>.SA</b> em todos os ativos listados na B3 (como ações, FIIs e ETFs brasileiros, por exemplo, PETR4.SA ou BOVA11.SA), enquanto ativos internacionais devem ser inseridos com seu ticker padrão global (como AAPL ou QQQ). Além disso, certifique-se de que a data inicial selecionada para o fundo não seja anterior ao IPO (lançamento) de nenhum dos ativos da sua carteira para evitar lacunas matemáticas na simulação da Fronteira Eficiente e do VaR. Por fim, ao parametrizar títulos de Renda Fixa, insira as taxas em seu valor nominal de mercado, digitando, por exemplo, 110 para representar 110% do CDI ou 6.5 para indicar uma taxa de IPCA + 6,5%.
+        Para garantir a precisão da extração de dados, utilize o sufixo <b>.SA</b> em ativos da B3 (ex: PETR4.SA), enquanto ativos globais recebem o ticker original. A data inicial do fundo não deve anteceder o IPO dos ativos selecionados para manter a coesão matemática do VaR e da Fronteira Eficiente. Na seleção de Renda Fixa, siga as instruções dinâmicas de cada indexador para garantir o cálculo preciso dos juros.
     </div>
     """, unsafe_allow_html=True)
-    st.info("👋 Utilize a barra lateral para adicionar ativos e iniciar as análises de portfólio.")
 else:
     with st.spinner("Sincronizando Mercado Global e Processando Modelagens..."):
         ativos_rv_principal = [k for k, v in st.session_state.carteira.items() if v['tipo'] == 'RV']
         ativos_rv_comp = [k for k, v in st.session_state.carteira_comparacao.items() if v['tipo'] == 'RV']
-        todos_ativos_rv = list(set(ativos_rv_principal + ativos_rv_comp))
+        
+        mapa_bench = {"Ibovespa": "^BVSP", "IFIX": "XFIX11.SA", "S&P 500": "^GSPC", "NASDAQ": "^IXIC", "SMLL (Small Caps)": "SMAL11.SA", "Ouro": "GC=F"}
+        tickers_bench_b3 = [mapa_bench[b] for b in benchmarks_sel if b in mapa_bench]
+        
+        todos_ativos_rv = list(set(ativos_rv_principal + ativos_rv_comp + tickers_bench_b3))
         
         df_rv_com = fetch_market_data(todos_ativos_rv, data_inicio, adj_close=True)
         df_rv_sem = fetch_market_data(todos_ativos_rv, data_inicio, adj_close=False) 
         
-        if benchmark_sel == "Ibovespa": df_bench, ticker_bench = fetch_market_data(['^BVSP'], data_inicio, adj_close=True), '^BVSP'
-        elif benchmark_sel == "IFIX": df_bench, ticker_bench = fetch_market_data(['XFIX11.SA'], data_inicio, adj_close=True), 'XFIX11.SA'
-        elif benchmark_sel == "S&P 500": df_bench, ticker_bench = fetch_market_data(['^GSPC'], data_inicio, adj_close=True), '^GSPC'
-        elif benchmark_sel == "NASDAQ": df_bench, ticker_bench = fetch_market_data(['^IXIC'], data_inicio, adj_close=True), '^IXIC'
-        elif benchmark_sel == "SMLL (Small Caps)": df_bench, ticker_bench = fetch_market_data(['SMAL11.SA'], data_inicio, adj_close=True), 'SMAL11.SA'
-        elif benchmark_sel == "Ouro": df_bench, ticker_bench = fetch_market_data(['GC=F'], data_inicio, adj_close=True), 'GC=F'
-        else: df_bench, ticker_bench = pd.DataFrame(), benchmark_sel 
-            
-        idx_mestre = df_bench.dropna().index if not df_bench.empty else pd.Index([])
-        if idx_mestre.empty and not df_rv_com.empty: idx_mestre = df_rv_com.dropna().index
-        if idx_mestre.empty: idx_mestre = pd.bdate_range(start=data_inicio, end=datetime.today())
+        idx_mestre = df_rv_com.dropna().index if not df_rv_com.empty else pd.bdate_range(start=data_inicio, end=datetime.today())
             
         cdi_series = fetch_br_indicators(12, data_inicio)
         selic_series = fetch_br_indicators(11, data_inicio)
@@ -259,24 +348,29 @@ else:
         if ipca_series.empty: ipca_daily_aligned = pd.Series((1 + 0.045)**(1/252) - 1, index=idx_mestre)
         else:
             ipca_daily_val = (1 + ipca_series)**(1/21) - 1
-            all_days = pd.date_range(start=ipca_daily_val.index.min(), end=datetime.today())
-            ipca_daily_aligned = ipca_daily_val.reindex(all_days).ffill().reindex(idx_mestre).fillna(0)
+            ipca_daily_aligned = ipca_daily_val.reindex(pd.date_range(start=ipca_daily_val.index.min(), end=datetime.today())).ffill().reindex(idx_mestre).fillna(0)
 
-        if benchmark_sel == "CDI (Percentual)": ret_bench = cdi_aligned * taxa_cdi_bench
-        elif benchmark_sel == "Selic": ret_bench = selic_aligned
-        elif benchmark_sel == "IPCA + Taxa": ret_bench = (1 + ipca_daily_aligned) * (1 + taxa_ipca_bench)**(1/252) - 1
-        else: ret_bench = df_bench[ticker_bench].reindex(idx_mestre).ffill().pct_change().fillna(0) if not df_bench.empty else pd.Series(0, index=idx_mestre)
+        dict_ret_benchs = {}
+        for b in benchmarks_sel:
+            if b == "CDI (Percentual)": dict_ret_benchs[b] = cdi_aligned * taxa_cdi_bench
+            elif b == "Selic": dict_ret_benchs[b] = selic_aligned
+            elif b == "IPCA + Taxa": dict_ret_benchs[b] = (1 + ipca_daily_aligned) * (1 + taxa_ipca_bench)**(1/252) - 1
+            elif b in mapa_bench:
+                tb = mapa_bench[b]
+                dict_ret_benchs[b] = df_rv_com[tb].reindex(idx_mestre).ffill().pct_change().fillna(0) if tb in df_rv_com.columns else pd.Series(0, index=idx_mestre)
+        
+        nome_bench_principal = benchmarks_sel[0] if benchmarks_sel else "Benchmark Padrão"
+        ret_bench_principal = dict_ret_benchs[nome_bench_principal] if benchmarks_sel else pd.Series(0, index=idx_mestre)
 
         ret_port_com, ret_port_sem = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir)
         ret_portfolio_principal = ret_port_com if reinvestir else ret_port_sem
         
         if st.session_state.carteira_comparacao:
-            ret_comp_com, ret_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir)
-            ret_portfolio_comparacao = ret_comp_com if reinvestir else ret_comp_sem
+            ret_comp_com, ret_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp)
+            ret_portfolio_comparacao = ret_comp_com if reinvestir_comp else ret_comp_sem
 
         aportes_brutos = np.array([v['aporte'] for v in st.session_state.carteira.values()])
-        if modo_aporte == "Por Valor Financeiro (R$)": capital_inicial = aportes_brutos.sum() 
-        else: capital_inicial = capital_inicial_input
+        capital_inicial = aportes_brutos.sum() if modo_aporte == "Por Valor Financeiro (R$)" else capital_inicial_input
         pesos_norm = aportes_brutos / aportes_brutos.sum() if aportes_brutos.sum() > 0 else aportes_brutos * 0
 
         # --- SEÇÃO 1: COMPOSIÇÃO ---
@@ -304,112 +398,171 @@ else:
 
         # --- SEÇÃO 2: MÉTRICAS GLOBAIS ---
         st.header("📊 Resumo de Desempenho")
-        m = calcular_metricas(ret_portfolio_principal, ret_bench, cdi_aligned)
+        m_prin = calcular_metricas(ret_portfolio_principal, ret_bench_principal, cdi_aligned)
         
-        st.subheader("Retorno & Eficiência", divider='gray')
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Rentabilidade Acumulada", f"{m[0]:.2%}")
-        c2.metric("Alpha de Jensen", f"{m[7]:.2%}")
-        c3.metric("Índice Sharpe", f"{m[2]:.2f}")
-        c4.metric("Índice Sortino", f"{m[3]:.2f}")
+        c1.metric("Rentabilidade Acumulada", f"{m_prin[0]:.2%}")
+        c2.metric("Alpha de Jensen", f"{m_prin[7]:.2%}")
+        c3.metric("Índice Sharpe", f"{m_prin[2]:.2f}")
+        c4.metric("Índice Sortino", f"{m_prin[3]:.2f}")
         
-        st.subheader("Risco & Mercado", divider='gray')
         c5, c6, c7, c8 = st.columns(4)
-        c5.metric("Volatilidade Anual", f"{m[1]:.2%}")
-        c6.metric("Max Drawdown", f"{m[4]:.2%}")
-        c7.metric("VaR (95%)", f"{m[5]:.2%}")
-        c8.metric(f"Beta vs Bench", f"{m[6]:.2f}")
+        c5.metric("Volatilidade Anual", f"{m_prin[1]:.2%}")
+        c6.metric("Max Drawdown", f"{m_prin[4]:.2%}")
+        c7.metric("VaR (95%)", f"{m_prin[5]:.2%}")
+        c8.metric(f"Beta vs {nome_bench_principal}", f"{m_prin[6]:.2f}")
 
         st.markdown("---")
         
-        # --- SEÇÃO 3: SIMULAÇÃO FINANCEIRA ---
-        st.header("💸 Simulação Financeira")
-        acum_com = (1 + ret_port_com).prod() - 1
-        acum_sem = (1 + ret_port_sem).prod() - 1
-        cap_final_com = capital_inicial * (1 + acum_com)
-        cap_final_sem = capital_inicial * (1 + acum_sem)
-        ganho_div_reais = cap_final_com - cap_final_sem
+        # --- ABAS DE ANÁLISE ---
+        abas = ["📈 Rentabilidade Global", "⚙️ Estudo das Métricas"]
+        if st.session_state.carteira_comparacao: abas.append("🆚 Análise de Comparação")
+        abas.append("🕯️ Candlestick (Ativos)")
         
-        c_fin1, c_fin2, c_fin3, c_fin4 = st.columns(4)
-        c_fin1.metric("Capital Inicial Total", formatar_moeda(capital_inicial))
-        c_fin2.metric("Final (C/ Reinvestimento)", formatar_moeda(cap_final_com), f"{acum_com*100:.2f}%")
-        c_fin3.metric("Final (S/ Reinvestimento)", formatar_moeda(cap_final_sem), f"{acum_sem*100:.2f}%")
-        c_fin4.metric("Ganho Adicional (R$)", formatar_moeda(ganho_div_reais), f"+{(acum_com - acum_sem)*100:.2f}%")
-
-        st.markdown("---")
+        tabs = st.tabs(abas)
         
-        # --- SEÇÃO 4: ABAS DE ANÁLISE ---
-        tab_rent, tab_metrics, tab_candle = st.tabs(["📈 Rentabilidade Global", "⚙️ Estudo das Métricas", "🕯️ Candlestick (Ativos)"])
-        
-        with tab_rent:
-            st.markdown(f"Comparativo de rentabilidade pura vs benchmark selecionado.")
-            df_grafico = pd.DataFrame(index=ret_portfolio_principal.index)
+        with tabs[0]:
+            st.markdown(f"Comparativo de rentabilidade contra os múltiplos benchmarks.")
+            df_grafico = pd.DataFrame(index=idx_mestre)
             df_grafico["Sua Carteira (%)"] = ((1 + ret_portfolio_principal).cumprod() - 1) * 100
-            
-            if st.session_state.carteira_comparacao:
-                df_grafico["Carteira Comparação (%)"] = ((1 + ret_portfolio_comparacao).cumprod() - 1) * 100
-                
-            df_grafico[f"Bench (%)"] = ((1 + ret_bench.reindex(idx_mestre).fillna(0)).cumprod() - 1) * 100
-            
-            fig_rent = px.line(df_grafico, color_discrete_sequence=["#D4AF37", "#00BFFF", "#555555"])
-            fig_rent.update_layout(
-                xaxis_title="", yaxis_title="Acumulado (%)",
-                xaxis=dict(tickformat="%b %Y", dtick="M3"), 
-                legend_title_text="", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37')
-            )
+            if st.session_state.carteira_comparacao: df_grafico["Carteira Comparação (%)"] = ((1 + ret_portfolio_comparacao).cumprod() - 1) * 100
+            for nome_bench, serie_bench in dict_ret_benchs.items():
+                df_grafico[f"{nome_bench} (%)"] = ((1 + serie_bench).cumprod() - 1) * 100
+            fig_rent = px.line(df_grafico, color_discrete_map={"Sua Carteira (%)": "#D4AF37", "Carteira Comparação (%)": "#00BFFF"})
+            fig_rent.update_layout(xaxis_title="", yaxis_title="Acumulado (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
             st.plotly_chart(fig_rent, use_container_width=True)
 
-        with tab_metrics:
-            metrica_sel = st.selectbox("Selecione o Estudo:", ["Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
+        with tabs[1]:
+            metrica_sel = st.selectbox("Selecione o Estudo (Sua Carteira):", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
             janela = 252 
-            df_roll = pd.DataFrame(index=ret_portfolio_principal.index)
+            df_roll = pd.DataFrame(index=idx_mestre)
             
-            if metrica_sel == "Value at Risk (VaR)":
-                df_roll["VaR 5% (Sua Carteira)"] = ret_portfolio_principal.rolling(janela).quantile(0.05)
-                if st.session_state.carteira_comparacao:
-                    df_roll["VaR 5% (Comparação)"] = ret_portfolio_comparacao.rolling(janela).quantile(0.05)
-                fig_var = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37", "#00BFFF"])
-                fig_var.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                st.plotly_chart(fig_var, use_container_width=True)
-
+            if metrica_sel == "Fronteira Eficiente (Markowitz)":
+                plot_markowitz(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, idx_mestre, reinvestir)
+            elif metrica_sel == "Value at Risk (VaR)":
+                tipo_var = st.radio("Selecione a visualização do VaR:", ["Histograma de Retornos (Estático)", "VaR Histórico Rolante"], horizontal=True)
+                if tipo_var == "Histograma de Retornos (Estático)":
+                    plot_var_histogram(ret_portfolio_principal, "Distribuição de Retornos (Sua Carteira)")
+                else:
+                    df_roll["VaR 5% (Sua Carteira)"] = ret_portfolio_principal.rolling(janela).quantile(0.05)
+                    if st.session_state.carteira_comparacao: df_roll["VaR 5% (Comparação)"] = ret_portfolio_comparacao.rolling(janela).quantile(0.05)
+                    fig_var = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37", "#00BFFF"])
+                    fig_var.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+                    st.plotly_chart(fig_var, use_container_width=True)
             elif metrica_sel == "Drawdown Histórico":
-                roll_cum = (1 + ret_portfolio_principal).cumprod()
-                df_roll["Sua Carteira (%)"] = ((roll_cum / roll_cum.cummax()) - 1) * 100
-                if st.session_state.carteira_comparacao:
-                    roll_cum_comp = (1 + ret_portfolio_comparacao).cumprod()
-                    df_roll["Comparação (%)"] = ((roll_cum_comp / roll_cum_comp.cummax()) - 1) * 100
-                
+                df_roll["Sua Carteira (%)"] = (((1 + ret_portfolio_principal).cumprod() / (1 + ret_portfolio_principal).cumprod().cummax()) - 1) * 100
+                if st.session_state.carteira_comparacao: df_roll["Comparação (%)"] = (((1 + ret_portfolio_comparacao).cumprod() / (1 + ret_portfolio_comparacao).cumprod().cummax()) - 1) * 100
                 fig_dd = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37", "#00BFFF"])
                 fig_dd.update_traces(fill='tozeroy') 
                 fig_dd.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
                 st.plotly_chart(fig_dd, use_container_width=True)
-
             elif metrica_sel == "Volatilidade Rolante":
                 df_roll["Sua Carteira (%)"] = ret_portfolio_principal.rolling(janela).std() * np.sqrt(252) * 100
-                if st.session_state.carteira_comparacao:
-                    df_roll["Comparação (%)"] = ret_portfolio_comparacao.rolling(janela).std() * np.sqrt(252) * 100
-                df_roll[f"Bench (%)"] = ret_bench.rolling(janela).std() * np.sqrt(252) * 100
+                if st.session_state.carteira_comparacao: df_roll["Comparação (%)"] = ret_portfolio_comparacao.rolling(janela).std() * np.sqrt(252) * 100
+                df_roll[f"{nome_bench_principal} (%)"] = ret_bench_principal.rolling(janela).std() * np.sqrt(252) * 100
                 fig_vol = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37", "#00BFFF", "#555555"])
                 fig_vol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
                 st.plotly_chart(fig_vol, use_container_width=True)
-
             elif metrica_sel == "Beta (Risco de Mercado)":
-                df_roll["Sua Carteira"] = ret_portfolio_principal.rolling(janela).cov(ret_bench) / ret_bench.rolling(janela).var()
-                if st.session_state.carteira_comparacao:
-                    df_roll["Comparação"] = ret_portfolio_comparacao.rolling(janela).cov(ret_bench) / ret_bench.rolling(janela).var()
-                fig_beta = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37", "#00BFFF"])
-                fig_beta.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                st.plotly_chart(fig_beta, use_container_width=True)
+                var_bench = ret_bench_principal.rolling(janela).var()
+                var_bench = var_bench.where(var_bench > 1e-8, np.nan) # Proteção contra benchmarks estáticos (Divisão por zero)
+                df_roll["Sua Carteira"] = ret_portfolio_principal.rolling(janela).cov(ret_bench_principal) / var_bench
+                if st.session_state.carteira_comparacao: df_roll["Comparação"] = ret_portfolio_comparacao.rolling(janela).cov(ret_bench_principal) / var_bench
+                
+                df_plot = df_roll.dropna()
+                if df_plot.empty:
+                    st.warning(f"O benchmark atual ({nome_bench_principal}) não possui volatilidade suficiente para o cálculo de Beta (Risco de Mercado é exclusivo para renda variável).")
+                else:
+                    fig_beta = px.line(df_plot, color_discrete_sequence=["#D4AF37", "#00BFFF"])
+                    fig_beta.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+                    st.plotly_chart(fig_beta, use_container_width=True)
 
-        with tab_candle:
+        if st.session_state.carteira_comparacao:
+            with tabs[2]:
+                m_comp = calcular_metricas(ret_portfolio_comparacao, ret_bench_principal, cdi_aligned)
+                st.markdown("### 🏆 Confronto Direto de Métricas")
+                r_p, r_c, win_r = compara_metrica(m_prin[0], m_comp[0], True, True)
+                a_p, a_c, win_a = compara_metrica(m_prin[7], m_comp[7], True, True)
+                s_p, s_c, win_s = compara_metrica(m_prin[2], m_comp[2], True, False)
+                v_p, v_c, win_v = compara_metrica(m_prin[1], m_comp[1], False, True)
+                d_p, d_c, win_d = compara_metrica(m_prin[4], m_comp[4], True, True) 
+                
+                st.markdown(f"""
+                <table>
+                    <tr><th>Métrica</th><th>Sua Carteira</th><th>Carteira Importada</th><th>Vencedor</th></tr>
+                    <tr><td>Retorno Acumulado</td><td>{r_p}</td><td>{r_c}</td><td>{win_r}</td></tr>
+                    <tr><td>Alpha de Jensen</td><td>{a_p}</td><td>{a_c}</td><td>{win_a}</td></tr>
+                    <tr><td>Índice Sharpe</td><td>{s_p}</td><td>{s_c}</td><td>{win_s}</td></tr>
+                    <tr><td>Volatilidade Anual</td><td>{v_p}</td><td>{v_c}</td><td>{win_v}</td></tr>
+                    <tr><td>Drawdown Máximo</td><td>{d_p}</td><td>{d_c}</td><td>{win_d}</td></tr>
+                </table>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("### 📈 Estudo Profundo (Carteira Importada)")
+                est_comp = st.selectbox("Análise Específica do Colega:", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
+                
+                df_roll_comp = pd.DataFrame(index=idx_mestre)
+                janela = 252
+
+                if est_comp == "Fronteira Eficiente (Markowitz)":
+                    plot_markowitz(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, idx_mestre, reinvestir_comp)
+                
+                elif est_comp == "Value at Risk (VaR)":
+                    tipo_var_comp = st.radio("Selecione a visualização do VaR (Importada):", ["Histograma de Retornos (Estático)", "VaR Histórico Rolante"], horizontal=True)
+                    if tipo_var_comp == "Histograma de Retornos (Estático)":
+                        plot_var_histogram(ret_portfolio_comparacao, "Distribuição de Retornos (Importada)", "#00BFFF")
+                    else:
+                        df_roll_comp["VaR 5% (Importada)"] = ret_portfolio_comparacao.rolling(janela).quantile(0.05)
+                        fig_var_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF"])
+                        fig_var_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+                        st.plotly_chart(fig_var_c, use_container_width=True)
+                
+                elif est_comp == "Drawdown Histórico":
+                    df_roll_comp["Importada (%)"] = (((1 + ret_portfolio_comparacao).cumprod() / (1 + ret_portfolio_comparacao).cumprod().cummax()) - 1) * 100
+                    fig_dd_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF"])
+                    fig_dd_c.update_traces(fill='tozeroy') 
+                    fig_dd_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+                    st.plotly_chart(fig_dd_c, use_container_width=True)
+                
+                elif est_comp == "Volatilidade Rolante":
+                    df_roll_comp["Importada (%)"] = ret_portfolio_comparacao.rolling(janela).std() * np.sqrt(252) * 100
+                    df_roll_comp[f"{nome_bench_principal} (%)"] = ret_bench_principal.rolling(janela).std() * np.sqrt(252) * 100
+                    fig_vol_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF", "#555555"])
+                    fig_vol_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+                    st.plotly_chart(fig_vol_c, use_container_width=True)
+                
+                elif est_comp == "Beta (Risco de Mercado)":
+                    var_bench = ret_bench_principal.rolling(janela).var()
+                    var_bench = var_bench.where(var_bench > 1e-8, np.nan)
+                    df_roll_comp["Beta (Importada)"] = ret_portfolio_comparacao.rolling(janela).cov(ret_bench_principal) / var_bench
+                    
+                    df_plot_c = df_roll_comp.dropna()
+                    if df_plot_c.empty:
+                        st.warning(f"O benchmark atual ({nome_bench_principal}) não possui volatilidade suficiente para o cálculo de Beta (Risco de Mercado é exclusivo para renda variável).")
+                    else:
+                        fig_beta_c = px.line(df_plot_c, color_discrete_sequence=["#00BFFF"])
+                        fig_beta_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+                        st.plotly_chart(fig_beta_c, use_container_width=True)
+                
+                st.markdown("### 🔎 RX dos Ativos Importados")
+                st.write(f"Cálculo de Dividendos: **{'Reinvestidos' if reinvestir_comp else 'Não Reinvestidos'}**")
+                for t, config in st.session_state.carteira_comparacao.items():
+                    ret_ind = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp)
+                    cc1, cc2, cc3 = st.columns([2, 1, 1])
+                    cc1.markdown(f"**{t}** *(Classe: {config['tipo']})*")
+                    cc2.markdown(f"Peso Inicial: **{formatar_moeda(config['aporte']) if modo_aporte == 'Por Valor Financeiro (R$)' else str(config['aporte']) + '%'}**")
+                    cc3.markdown(f"Desempenho: **<span style='color:{'#00FF00' if ret_ind >= 0 else '#FF0000'}'>{formatar_percentual(ret_ind)}</span>**", unsafe_allow_html=True)
+                    st.divider()
+
+        with tabs[-1]:
             ativo_candle = st.selectbox("Ativo:", [t for t in ativos_rv_principal])
             if ativo_candle:
                 df_ohlc = yf.download(ativo_candle, start=data_inicio, progress=False)
-                fig_c = go.Figure(data=[go.Candlestick(x=df_ohlc.index, open=df_ohlc['Open'], high=df_ohlc['High'], low=df_ohlc['Low'], close=df_ohlc['Close'])])
-                fig_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                st.plotly_chart(fig_c, use_container_width=True)
+                if not df_ohlc.empty:
+                    fig_c = go.Figure(data=[go.Candlestick(x=df_ohlc.index, open=df_ohlc['Open'], high=df_ohlc['High'], low=df_ohlc['Low'], close=df_ohlc['Close'])])
+                    fig_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+                    st.plotly_chart(fig_c, use_container_width=True)
 
         if st.button("🖨️ Salvar Relatório em PDF", use_container_width=True):
             components.html("<script>window.parent.print();</script>", height=0)
-
         st.markdown(f"<div style='text-align:right; color:#D4AF37; opacity:0.6'>Desenvolvido por Bernardo V.</div>", unsafe_allow_html=True)
