@@ -85,7 +85,7 @@ with st.sidebar:
         capital_inicial_input = 0.0 
         col_cap.text_input("Capital Total (R$)", value="Soma Automática", disabled=True, help="O capital será a soma de todos os aportes.")
         
-    data_inicio = col_dt.date_input("Data Inicial", datetime(2023,1,1))
+    data_inicio = col_dt.date_input("Data Inicial", value=datetime(2012,1,1), min_value=datetime(1900,1,1), max_value=datetime.today())
     
     # Expansor para esconder configurações secundárias
     with st.expander("📊 Parâmetros de Mercado & Visualização", expanded=False):
@@ -118,7 +118,7 @@ with st.sidebar:
         
         c_dt1, c_dt2 = st.columns([1, 1.5])
         comprado_inicio_rv = c_dt1.checkbox("Desde o Início?", value=True, key="chk_rv")
-        data_compra_rv = data_inicio if comprado_inicio_rv else c_dt2.date_input("Comprado em", value=data_inicio, min_value=data_inicio, key="dt_rv")
+        data_compra_rv = data_inicio if comprado_inicio_rv else c_dt2.date_input("Comprado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rv")
         
         if st.button("Inserir Renda Variável") and ticker:
             st.session_state.carteira[ticker] = {'tipo': 'RV', 'aporte': aporte_val, 'data_compra': data_compra_rv}
@@ -137,7 +137,7 @@ with st.sidebar:
         
         c_dt3, c_dt4 = st.columns([1, 1.5])
         comprado_inicio_rf = c_dt3.checkbox("Desde o Início?", value=True, key="chk_rf")
-        data_compra_rf = data_inicio if comprado_inicio_rf else c_dt4.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, key="dt_rf")
+        data_compra_rf = data_inicio if comprado_inicio_rf else c_dt4.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rf")
         
         if st.button("Inserir Renda Fixa") and nome_rf:
             st.session_state.carteira[nome_rf] = {'tipo': 'RF', 'indexador': tipo_rf, 'taxa': taxa, 'aporte': aporte_val_rf, 'data_compra': data_compra_rf}
@@ -328,14 +328,13 @@ else:
         with tab_metrics:
             st.markdown("Analise o risco, o comportamento e a eficiência da sua carteira no detalhe.")
             
-            # Novo menu principal de métricas
             metrica_sel = st.selectbox(
                 "Selecione o Estudo:", 
                 ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"]
             )
             
             df_roll = pd.DataFrame(index=ret_portfolio_principal.index)
-            janela = 252 # Janela padrão anual para gráficos rolantes
+            janela = 252 
             
             # --- FRONTEIRA EFICIENTE ---
             if metrica_sel == "Fronteira Eficiente (Markowitz)":
@@ -347,7 +346,6 @@ else:
                     st.markdown("Simulação de **5.000 carteiras aleatórias** usando os ativos de Renda Variável atuais para encontrar o portfólio de **Máximo Índice Sharpe**.")
                     
                     with st.spinner("Simulando portfólios..."):
-                        # Matemática do Monte Carlo
                         ret_medios = ret_ativos_selecionados[ativos_rv_validos].mean() * 252
                         cov_mat = ret_ativos_selecionados[ativos_rv_validos].cov() * 252
                         
@@ -363,20 +361,16 @@ else:
                             
                             resultados[0,i] = ret_esp
                             resultados[1,i] = vol_esp
-                            # Sharpe Ratio considerando a taxa livre de risco configurada na lateral
                             resultados[2,i] = (ret_esp - cdi_base) / vol_esp if vol_esp > 0 else 0
                             
-                        # Preparar dados para o Plotly
                         df_ef = pd.DataFrame(resultados.T, columns=['Retorno', 'Volatilidade', 'Sharpe'])
                         idx_max_sharpe = df_ef['Sharpe'].idxmax()
                         max_sharpe_point = df_ef.iloc[idx_max_sharpe]
                         
-                        # Gráfico Scatter Plot
                         fig_ef = px.scatter(
                             df_ef, x='Volatilidade', y='Retorno', color='Sharpe',
                             color_continuous_scale='Viridis', opacity=0.8
                         )
-                        # Marcador para o Máximo Sharpe (Estrela Vermelha)
                         fig_ef.add_trace(go.Scatter(
                             x=[max_sharpe_point['Volatilidade']], y=[max_sharpe_point['Retorno']],
                             mode='markers', marker=dict(color='red', size=15, symbol='star'),
@@ -391,13 +385,11 @@ else:
 
             # --- VALUE AT RISK (VaR) ---
             elif metrica_sel == "Value at Risk (VaR)":
-                # Submenu condicional apenas para o VaR
                 tipo_var = st.radio("Selecione a visualização do VaR:", ["Histograma de Retornos (Estático)", "VaR Histórico Rolante (Janela 252d)"], horizontal=True)
                 
                 if tipo_var == "Histograma de Retornos (Estático)":
                     var_5 = np.percentile(ret_portfolio_principal, 5)
                     fig_var = px.histogram(ret_portfolio_principal, nbins=50, title="Distribuição de Retornos Diários")
-                    # Linha vertical indicando o VaR
                     fig_var.add_vline(x=var_5, line_dash="dash", line_color="red", annotation_text=f"VaR 5% = {var_5:.4f}")
                     fig_var.update_layout(
                         xaxis_title="Retorno Diário", yaxis_title="Densidade", showlegend=False,
@@ -417,7 +409,7 @@ else:
             # --- DRAWDOWN HISTÓRICO ---
             elif metrica_sel == "Drawdown Histórico":
                 roll_cum = (1 + ret_portfolio_principal).cumprod()
-                roll_max = roll_cum.cummax() # Usando cummax para pegar a máxima histórica total
+                roll_max = roll_cum.cummax()
                 df_roll["Drawdown Carteira (%)"] = ((roll_cum / roll_max) - 1) * 100
                 
                 fig_dd = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37"])
@@ -425,7 +417,6 @@ else:
                     xaxis_title="", yaxis_title="Queda a partir do Topo (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), 
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37')
                 )
-                # Opcional: Pintar a área debaixo da linha de Drawdown para ficar igual à sua imagem
                 fig_dd.update_traces(fill='tozeroy') 
                 st.plotly_chart(fig_dd, use_container_width=True)
 
