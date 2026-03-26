@@ -190,8 +190,9 @@ with st.sidebar:
     classe_ativo = st.radio("Classe do Ativo", ["Renda Variável", "Renda Fixa"], horizontal=True)
     
     if classe_ativo == "Renda Variável":
+        st.warning("⚠️ Ativos listados na B3 exigem o final **.SA** (ex: VALE3.SA).")
         c_rv1, c_rv2 = st.columns(2)
-        ticker = c_rv1.text_input("Ticker", help="Ex: PETR4.SA").upper().strip()
+        ticker = c_rv1.text_input("Ticker", help="Ex: PETR4.SA, AAPL").upper().strip()
         aporte_val = c_rv2.number_input("Peso/Valor", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
         comprado_inicio_rv = st.checkbox("Desde o Início?", value=True, key="chk_rv")
         data_compra_rv = data_inicio if comprado_inicio_rv else st.date_input("Comprado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rv")
@@ -220,10 +221,15 @@ with st.sidebar:
 st.title("🏛️ LMF - ASSET")
 
 if not st.session_state.carteira:
-    st.info("👋 Configure os parâmetros na barra lateral e adicione ativos para montar sua estratégia.")
+    st.markdown("""
+    <div style="background-color: rgba(212, 175, 55, 0.1); border-left: 5px solid #D4AF37; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+        <h4 style="color: #D4AF37; margin-top: 0;">📌 Diretrizes Operacionais do Sistema</h4>
+        Para garantir a precisão da extração de dados e a integridade das modelagens financeiras, é estritamente necessário utilizar o sufixo <b>.SA</b> em todos os ativos listados na B3 (como ações, FIIs e ETFs brasileiros, por exemplo, PETR4.SA ou BOVA11.SA), enquanto ativos internacionais devem ser inseridos com seu ticker padrão global (como AAPL ou QQQ). Além disso, certifique-se de que a data inicial selecionada para o fundo não seja anterior ao IPO (lançamento) de nenhum dos ativos da sua carteira para evitar lacunas matemáticas na simulação da Fronteira Eficiente e do VaR. Por fim, ao parametrizar títulos de Renda Fixa, insira as taxas em seu valor nominal de mercado, digitando, por exemplo, 110 para representar 110% do CDI ou 6.5 para indicar uma taxa de IPCA + 6,5%.
+    </div>
+    """, unsafe_allow_html=True)
+    st.info("👋 Utilize a barra lateral para adicionar ativos e iniciar as análises de portfólio.")
 else:
     with st.spinner("Sincronizando Mercado Global e Processando Modelagens..."):
-        # Puxa ativos da carteira principal e da comparação em lote
         ativos_rv_principal = [k for k, v in st.session_state.carteira.items() if v['tipo'] == 'RV']
         ativos_rv_comp = [k for k, v in st.session_state.carteira_comparacao.items() if v['tipo'] == 'RV']
         todos_ativos_rv = list(set(ativos_rv_principal + ativos_rv_comp))
@@ -256,22 +262,18 @@ else:
             all_days = pd.date_range(start=ipca_daily_val.index.min(), end=datetime.today())
             ipca_daily_aligned = ipca_daily_val.reindex(all_days).ffill().reindex(idx_mestre).fillna(0)
 
-        # Benchmark Condicional
         if benchmark_sel == "CDI (Percentual)": ret_bench = cdi_aligned * taxa_cdi_bench
         elif benchmark_sel == "Selic": ret_bench = selic_aligned
         elif benchmark_sel == "IPCA + Taxa": ret_bench = (1 + ipca_daily_aligned) * (1 + taxa_ipca_bench)**(1/252) - 1
         else: ret_bench = df_bench[ticker_bench].reindex(idx_mestre).ffill().pct_change().fillna(0) if not df_bench.empty else pd.Series(0, index=idx_mestre)
 
-        # Processamento Principal
         ret_port_com, ret_port_sem = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir)
         ret_portfolio_principal = ret_port_com if reinvestir else ret_port_sem
         
-        # Processamento Comparação
         if st.session_state.carteira_comparacao:
             ret_comp_com, ret_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir)
             ret_portfolio_comparacao = ret_comp_com if reinvestir else ret_comp_sem
 
-        # Cálculo Inicial do Principal
         aportes_brutos = np.array([v['aporte'] for v in st.session_state.carteira.values()])
         if modo_aporte == "Por Valor Financeiro (R$)": capital_inicial = aportes_brutos.sum() 
         else: capital_inicial = capital_inicial_input
@@ -316,7 +318,7 @@ else:
         c5.metric("Volatilidade Anual", f"{m[1]:.2%}")
         c6.metric("Max Drawdown", f"{m[4]:.2%}")
         c7.metric("VaR (95%)", f"{m[5]:.2%}")
-        c8.metric(f"Beta vs {benchmark_sel}", f"{m[6]:.2f}")
+        c8.metric(f"Beta vs Bench", f"{m[6]:.2f}")
 
         st.markdown("---")
         
@@ -340,14 +342,14 @@ else:
         tab_rent, tab_metrics, tab_candle = st.tabs(["📈 Rentabilidade Global", "⚙️ Estudo das Métricas", "🕯️ Candlestick (Ativos)"])
         
         with tab_rent:
-            st.markdown(f"Comparativo de rentabilidade pura vs **{benchmark_sel}**.")
+            st.markdown(f"Comparativo de rentabilidade pura vs benchmark selecionado.")
             df_grafico = pd.DataFrame(index=ret_portfolio_principal.index)
             df_grafico["Sua Carteira (%)"] = ((1 + ret_portfolio_principal).cumprod() - 1) * 100
             
             if st.session_state.carteira_comparacao:
                 df_grafico["Carteira Comparação (%)"] = ((1 + ret_portfolio_comparacao).cumprod() - 1) * 100
                 
-            df_grafico[f"{benchmark_sel} (%)"] = ((1 + ret_bench.reindex(idx_mestre).fillna(0)).cumprod() - 1) * 100
+            df_grafico[f"Bench (%)"] = ((1 + ret_bench.reindex(idx_mestre).fillna(0)).cumprod() - 1) * 100
             
             fig_rent = px.line(df_grafico, color_discrete_sequence=["#D4AF37", "#00BFFF", "#555555"])
             fig_rent.update_layout(
@@ -386,7 +388,7 @@ else:
                 df_roll["Sua Carteira (%)"] = ret_portfolio_principal.rolling(janela).std() * np.sqrt(252) * 100
                 if st.session_state.carteira_comparacao:
                     df_roll["Comparação (%)"] = ret_portfolio_comparacao.rolling(janela).std() * np.sqrt(252) * 100
-                df_roll[f"Bench {benchmark_sel} (%)"] = ret_bench.rolling(janela).std() * np.sqrt(252) * 100
+                df_roll[f"Bench (%)"] = ret_bench.rolling(janela).std() * np.sqrt(252) * 100
                 fig_vol = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37", "#00BFFF", "#555555"])
                 fig_vol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
                 st.plotly_chart(fig_vol, use_container_width=True)
