@@ -217,6 +217,16 @@ def compara_metrica(val_p, val_c, is_higher_better=True, is_pct=True):
     if win: return f"⭐ {vp_str}", vc_str, "Principal"
     else: return vp_str, f"⭐ {vc_str}", "Comparada"
 
+# Busca rápida para as taxas globais automáticas
+try:
+    data_1ano_atras = datetime.today() - pd.DateOffset(years=1)
+    cdi_recente = fetch_br_indicators(12, data_1ano_atras)
+    ipca_recente = fetch_br_indicators(433, data_1ano_atras)
+    cdi_auto = ((1 + cdi_recente.iloc[-1])**252 - 1) if not cdi_recente.empty else 0.105
+    ipca_auto = ((1 + ipca_recente.tail(12)).prod() - 1) if not ipca_recente.empty else 0.045
+except:
+    cdi_auto, ipca_auto = 0.105, 0.045
+
 # --- 3. BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configuração Principal")
@@ -241,9 +251,18 @@ with st.sidebar:
         if "CDI (Percentual)" in benchmarks_sel:
             taxa_cdi_bench = st.number_input("Percentual do CDI (%)", value=100.0, step=1.0) / 100
             
+        st.markdown("<hr style='margin:10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+        taxas_personalizadas = st.checkbox("Deseja taxas personalizadas?")
         c_taxa1, c_taxa2 = st.columns(2)
-        cdi_base = c_taxa1.number_input("CDI Base Global (%)", value=10.5, step=0.1) / 100
-        ipca_base = c_taxa2.number_input("IPCA Base Global (%)", value=4.5, step=0.1) / 100
+        
+        if taxas_personalizadas:
+            cdi_base = c_taxa1.number_input("CDI Base Global (%)", value=cdi_auto*100, step=0.1, help="Taxa livre de risco") / 100
+            ipca_base = c_taxa2.number_input("IPCA Base Global (%)", value=ipca_auto*100, step=0.1, help="Inflação base") / 100
+        else:
+            c_taxa1.number_input("CDI Atual BCB (%)", value=cdi_auto*100, disabled=True, help="Taxa diária anualizada puxada hoje do Banco Central")
+            c_taxa2.number_input("IPCA Atual BCB (%)", value=ipca_auto*100, disabled=True, help="Inflação acumulada dos últimos 12 meses puxada do Banco Central")
+            cdi_base, ipca_base = cdi_auto, ipca_auto
+            
         reinvestir = st.checkbox("Reinvestir Dividendos na Carteira Principal", value=True)
         
     with st.expander("🔗 Compartilhamento & Comparação", expanded=False):
@@ -465,7 +484,7 @@ else:
                 st.plotly_chart(fig_vol, use_container_width=True)
             elif metrica_sel == "Beta (Risco de Mercado)":
                 var_bench = ret_bench_principal.rolling(janela).var()
-                var_bench = var_bench.where(var_bench > 1e-8, np.nan) # Proteção contra benchmarks estáticos (Divisão por zero)
+                var_bench = var_bench.where(var_bench > 1e-8, np.nan)
                 df_roll["Sua Carteira"] = ret_portfolio_principal.rolling(janela).cov(ret_bench_principal) / var_bench
                 if st.session_state.carteira_comparacao: df_roll["Comparação"] = ret_portfolio_comparacao.rolling(janela).cov(ret_bench_principal) / var_bench
                 
