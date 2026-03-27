@@ -40,11 +40,19 @@ def formatar_float(valor):
     return f"{float(valor):.2f}"
 
 def formatar_pct_api(valor):
-    if valor is None or pd.isna(valor): return "N/A"
-    return f"{float(valor)*100:.2f}%"
+    if valor is None or pd.isna(valor) or valor == 0: return "N/A"
+    val = float(valor)
+    if val > 10: return f"{val:.2f}%" 
+    return f"{val*100:.2f}%"
+
+def formatar_dy(valor):
+    if valor is None or pd.isna(valor) or valor == 0: return "N/A"
+    val = float(valor)
+    if val > 1: return f"{val:.2f}%" 
+    return f"{val*100:.2f}%"
 
 def formatar_abrev(valor):
-    if valor is None or pd.isna(valor): return "N/A"
+    if valor is None or pd.isna(valor) or valor == 0: return "N/A"
     try:
         val = float(valor)
         if val >= 1e9: return f"{val/1e9:.2f} B"
@@ -174,6 +182,14 @@ def fetch_fundamental_info(ticker):
         return yf.Ticker(ticker).info
     except:
         return {}
+
+@st.cache_data(ttl=3600)
+def fetch_historical_fundamentals(ticker):
+    try:
+        t = yf.Ticker(ticker)
+        return t.financials, t.balance_sheet, t.cashflow
+    except:
+        return None, None, None
 
 def calcular_metricas(ret_p, ret_m, cdi_s):
     if ret_p.empty: return [0]*8
@@ -550,7 +566,6 @@ else:
         st.header("📊 Resumo de Desempenho (Carteira Completa)")
         m_prin = calcular_metricas(ret_portfolio_principal, ret_bench_principal, cdi_aligned)
         
-        # Cálculos de Representação Numérica e Diferença de Dividendos
         ret_port_com_acum = (1 + ret_port_com_full).prod() - 1
         ret_port_sem_acum = (1 + ret_port_sem_full).prod() - 1
         patrimonio_final = capital_inicial * (1 + m_prin[0])
@@ -576,7 +591,7 @@ else:
         st.markdown("---")
         
         # --- ABAS DE ANÁLISE ---
-        abas_nomes = ["📈 Rentabilidade Global", "🔎 Raio-X da Carteira", "⚙️ Estudo das Métricas"]
+        abas_nomes = ["📈 Rentabilidade Global", "🔎 Raio-X da Carteira", "⚙️ Estudo das Métricas", "📊 Comparação Setorial"]
         if st.session_state.carteira_comparacao: abas_nomes.append("🆚 Análise de Comparação")
         abas_nomes.extend(["🔍 Análise Fundamentalista", "🕯️ Candlestick (Ativos)"])
         
@@ -699,6 +714,55 @@ else:
                     fig_beta.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
                     st.plotly_chart(fig_beta, use_container_width=True)
 
+        tab_idx += 1
+        with tabs[tab_idx]: # Comparação Setorial
+            st.markdown("### 📊 Análise Setorial Personalizada")
+            st.markdown("Filtre janelas de tempo específicas e compare o risco/retorno dos setores presentes na sua carteira.")
+            
+            c_dates1, c_dates2 = st.columns(2)
+            dt_start = c_dates1.date_input("Data de Início:", value=data_inicio, min_value=data_inicio, max_value=datetime.today())
+            dt_end = c_dates2.date_input("Data de Fim:", value=datetime.today().date(), min_value=dt_start, max_value=datetime.today())
+            
+            setores_disponiveis = list(set([v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
+            setores_selecionados = st.multiselect("Selecione os Setores para Comparar:", setores_disponiveis, default=setores_disponiveis[:3] if len(setores_disponiveis) >= 3 else setores_disponiveis)
+            
+            if not setores_selecionados:
+                st.warning("Selecione ao menos um setor para gerar a comparação.")
+            else:
+                ts_start = pd.to_datetime(dt_start)
+                ts_end = pd.to_datetime(dt_end)
+                mask_dates = (idx_mestre >= ts_start) & (idx_mestre <= ts_end)
+                idx_periodo = idx_mestre[mask_dates]
+                
+                if len(idx_periodo) < 2:
+                    st.warning("O período selecionado é muito curto para gerar métricas consistentes.")
+                else:
+                    retornos_setores = {}
+                    metricas_setores = {}
+                    cdi_periodo = cdi_aligned.loc[idx_periodo]
+                    bench_periodo = ret_bench_principal.loc[idx_periodo] if not ret_bench_principal.empty else pd.Series(0, index=idx_periodo)
+                    
+                    for setor in setores_selecionados:
+                        ret_c_sect, ret_s_sect = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, setor_filter=setor)
+                        ret_periodo = (ret_c_sect if reinvestir else ret_s_sect).loc[idx_periodo]
+                        retornos_setores[setor] = ret_periodo
+                        metricas_setores[setor] = calcular_metricas(ret_periodo, bench_periodo, cdi_periodo)
+                        
+                    df_plot_setores = pd.DataFrame(index=idx_periodo)
+                    for setor, ret_serie in retornos_setores.items():
+                        df_plot_setores[setor] = ((1 + ret_serie).cumprod() - 1) * 100
+                        
+                    fig_setores = px.line(df_plot_setores)
+                    fig_setores.update_layout(xaxis_title="Data", yaxis_title="Acumulado (%)", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), legend_title_text='Setor')
+                    st.plotly_chart(fig_setores, use_container_width=True)
+                    
+                    st.markdown("#### 🏆 Métricas do Período por Setor")
+                    html_met_sect = "<table><tr><th>Setor</th><th>Retorno Acumulado</th><th>Volatilidade Anual</th><th>Índice Sharpe</th><th>Max Drawdown</th><th>Beta</th></tr>"
+                    for setor, m in metricas_setores.items():
+                        html_met_sect += f"<tr><td><b>{setor}</b></td><td>{m[0]:.2%}</td><td>{m[1]:.2%}</td><td>{m[2]:.2f}</td><td>{m[4]:.2%}</td><td>{m[6]:.2f}</td></tr>"
+                    html_met_sect += "</table>"
+                    st.markdown(html_met_sect, unsafe_allow_html=True)
+
         if st.session_state.carteira_comparacao:
             tab_idx += 1
             with tabs[tab_idx]: # Análise Comparação
@@ -768,7 +832,7 @@ else:
                 
                 elif est_comp == "Beta (Risco de Mercado)":
                     var_bench = ret_bench_principal.rolling(janela).var()
-                    var_bench = var_bench.where(var_bench > 1e-8, 1e-8)
+                    var_bench = var_bench.where(var_bench > 1e-8, np.nan)
                     df_roll_comp[f"Beta ({setor_filtro_comp})"] = ret_estudo_comp.rolling(janela).cov(ret_bench_principal) / var_bench
                     
                     df_plot_c = df_roll_comp.dropna()
@@ -803,20 +867,22 @@ else:
             else:
                 ativo_fund = st.selectbox("Selecione o Ativo para Análise Fundamentalista:", ativos_rv_principal)
                 if ativo_fund:
-                    with st.spinner(f"Extraindo dados fundamentalistas de {ativo_fund}..."):
+                    with st.spinner(f"Extraindo dados fundamentalistas e contábeis de {ativo_fund}..."):
                         info = fetch_fundamental_info(ativo_fund)
+                        fin, bs, cf = fetch_historical_fundamentals(ativo_fund)
                         
                         if not info or ('trailingPE' not in info and 'marketCap' not in info and 'priceToBook' not in info):
                             st.warning(f"Dados fundamentalistas não estão disponíveis na API global para o ativo {ativo_fund} no momento.")
                         else:
                             st.markdown(f"### 📊 Raio-X Fundamentalista: {ativo_fund}")
+                            st.caption("⚠️ **Aviso de Dados:** As métricas abaixo são extraídas de provedores públicos globais. Para garantir 100% de precisão e segurança na tomada de decisão, consulte os demonstrativos oficiais em sites de RI (Relações com Investidores) ou plataformas profissionais certificadas.")
                             st.markdown("---")
                             
                             st.subheader("💰 Valuation & Preço", divider='gray')
                             v1, v2, v3, v4 = st.columns(4)
-                            v1.metric("P/L (Preço/Lucro)", formatar_float(info.get('trailingPE')))
+                            v1.metric("P/L (Preço/Lucro)", formatar_float(info.get('trailingPE') or info.get('forwardPE')))
                             v2.metric("P/VP (Preço/Valor Patrimonial)", formatar_float(info.get('priceToBook')))
-                            v3.metric("Dividend Yield (DY)", formatar_pct_api(info.get('dividendYield')))
+                            v3.metric("Dividend Yield (DY)", formatar_dy(info.get('trailingAnnualDividendYield') or info.get('dividendYield')))
                             v4.metric("PEG Ratio", formatar_float(info.get('pegRatio')))
                             
                             st.subheader("📈 Rentabilidade & Eficiência", divider='gray')
@@ -829,9 +895,77 @@ else:
                             st.subheader("🏛️ Saúde Financeira & Estrutura", divider='gray')
                             s1, s2, s3, s4 = st.columns(4)
                             s1.metric("Liquidez Corrente", formatar_float(info.get('currentRatio')))
-                            s2.metric("Dívida/Patrimônio", formatar_float(info.get('debtToEquity', 0) / 100 if info.get('debtToEquity') else None))
-                            s3.metric("LPA (Lucro por Ação)", formatar_float(info.get('trailingEps')))
+                            
+                            div_pat_val = info.get('debtToEquity')
+                            div_pat_str = formatar_float(div_pat_val / 100) if div_pat_val and div_pat_val != 0 else "N/A"
+                            s2.metric("Dívida/Patrimônio", div_pat_str)
+                            
+                            s3.metric("LPA (Lucro por Ação)", formatar_float(info.get('trailingEps') or info.get('forwardEps')))
                             s4.metric("Valor de Mercado", formatar_abrev(info.get('marketCap')))
+                            
+                            # --- EVOLUÇÃO HISTÓRICA ---
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            st.markdown("### 📈 Evolução Histórica (Últimos Exercícios)")
+                            st.info("A API global gratuita disponibiliza os dados contábeis consolidados dos últimos 4 anos. Valores em 'B' representam Bilhões e 'M' representam Milhões.")
+                            
+                            opcoes_historico = {}
+                            if fin is not None and not fin.empty:
+                                if "Total Revenue" in fin.index: opcoes_historico["Receita Total"] = ("Total Revenue", fin)
+                                if "Gross Profit" in fin.index: opcoes_historico["Lucro Bruto"] = ("Gross Profit", fin)
+                                if "EBIT" in fin.index: opcoes_historico["EBIT"] = ("EBIT", fin)
+                                if "Normalized EBITDA" in fin.index: opcoes_historico["EBITDA"] = ("Normalized EBITDA", fin)
+                                elif "EBITDA" in fin.index: opcoes_historico["EBITDA"] = ("EBITDA", fin)
+                                if "Net Income" in fin.index: opcoes_historico["Lucro Líquido"] = ("Net Income", fin)
+                                
+                            if bs is not None and not bs.empty:
+                                if "Total Assets" in bs.index: opcoes_historico["Ativos Totais"] = ("Total Assets", bs)
+                                if "Total Liabilities Net Minority Interest" in bs.index: opcoes_historico["Passivos Totais"] = ("Total Liabilities Net Minority Interest", bs)
+                                elif "Total Liabilities" in bs.index: opcoes_historico["Passivos Totais"] = ("Total Liabilities", bs)
+                                if "Stockholders Equity" in bs.index: opcoes_historico["Patrimônio Líquido"] = ("Stockholders Equity", bs)
+                                if "Total Debt" in bs.index: opcoes_historico["Dívida Total"] = ("Total Debt", bs)
+                                if "Cash And Cash Equivalents" in bs.index: opcoes_historico["Caixa e Equivalentes"] = ("Cash And Cash Equivalents", bs)
+                                
+                            if cf is not None and not cf.empty:
+                                if "Operating Cash Flow" in cf.index: opcoes_historico["Caixa Operacional"] = ("Operating Cash Flow", cf)
+                                if "Free Cash Flow" in cf.index: opcoes_historico["Fluxo de Caixa Livre"] = ("Free Cash Flow", cf)
+                            
+                            if opcoes_historico:
+                                metrica_hist = st.selectbox("Selecione a métrica contábil para visualizar a evolução anual:", list(opcoes_historico.keys()))
+                                nome_api, df_fonte = opcoes_historico[metrica_hist]
+                                
+                                serie_hist = df_fonte.loc[nome_api].dropna()
+                                serie_hist = serie_hist.sort_index()
+                                
+                                if not serie_hist.empty:
+                                    def formata_br(v):
+                                        if pd.isna(v) or v == 0: return "0"
+                                        sinal = "-" if v < 0 else ""
+                                        abs_v = abs(v)
+                                        if abs_v >= 1e9: return f"{sinal}{abs_v/1e9:.2f} B"
+                                        if abs_v >= 1e6: return f"{sinal}{abs_v/1e6:.2f} M"
+                                        return f"{sinal}{abs_v:,.0f}"
+                                        
+                                    df_plot = pd.DataFrame({
+                                        "Ano": serie_hist.index.year.astype(str),
+                                        "Valor": serie_hist.values
+                                    })
+                                    df_plot["Texto"] = df_plot["Valor"].apply(formata_br)
+                                    
+                                    fig_hist = px.bar(df_plot, x="Ano", y="Valor", text="Texto")
+                                    fig_hist.update_traces(marker_color='#D4AF37', textfont_color='white', textposition='outside')
+                                    fig_hist.update_layout(
+                                        paper_bgcolor='rgba(0,0,0,0)', 
+                                        plot_bgcolor='rgba(0,0,0,0)', 
+                                        font=dict(color='#D4AF37'), 
+                                        xaxis_title="", 
+                                        yaxis_title="Valor Nominal",
+                                        yaxis=dict(showticklabels=False)
+                                    )
+                                    st.plotly_chart(fig_hist, use_container_width=True)
+                                else:
+                                    st.warning(f"Dados anuais de {metrica_hist} não encontrados para este ativo.")
+                            else:
+                                st.warning("O histórico contábil deste ativo não está disponível na base de dados global.")
 
         tab_idx += 1
         with tabs[tab_idx]: # Candlestick
