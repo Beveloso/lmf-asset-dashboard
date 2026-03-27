@@ -57,12 +57,30 @@ OPCOES_SETORES = [
     "Tecnologia da Informação", "Saúde", "Petróleo, Gás e Biocombustíveis", "Comunicações"
 ]
 
+# --- FUNÇÕES DE FORMATAÇÃO E IMPORTAÇÃO ---
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def formatar_percentual(valor):
     sinal = "+" if valor >= 0 else ""
     return f"{sinal}{valor*100:.2f}%"
+
+def formatar_float(valor):
+    if valor is None or pd.isna(valor): return "N/A"
+    return f"{float(valor):.2f}"
+
+def formatar_pct_api(valor):
+    if valor is None or pd.isna(valor): return "N/A"
+    return f"{float(valor)*100:.2f}%"
+
+def formatar_abrev(valor):
+    if valor is None or pd.isna(valor): return "N/A"
+    try:
+        val = float(valor)
+        if val >= 1e9: return f"{val/1e9:.2f} B"
+        if val >= 1e6: return f"{val/1e6:.2f} M"
+        return f"{val:.2f}"
+    except: return "N/A"
 
 def exportar_codigo_carteira(carteira_dict):
     if not carteira_dict: return ""
@@ -111,6 +129,13 @@ def fetch_br_indicators(codigo, start_date):
         return df['valor'] / 100
     except Exception:
         return pd.Series(dtype=float)
+
+@st.cache_data(ttl=3600)
+def fetch_fundamental_info(ticker):
+    try:
+        return yf.Ticker(ticker).info
+    except:
+        return {}
 
 def calcular_metricas(ret_p, ret_m, cdi_s):
     if ret_p.empty: return [0]*8
@@ -257,6 +282,43 @@ def compara_metrica(val_p, val_c, is_higher_better=True, is_pct=True):
     if win: return f"⭐ {vp_str}", vc_str, "Principal"
     else: return vp_str, f"⭐ {vc_str}", "Comparada"
 
+# --- TELA INICIAL (SPLASH SCREEN / SAVE STATE) ---
+if 'started' not in st.session_state:
+    st.session_state['started'] = False
+
+if not st.session_state['started']:
+    st.title("🏛️ LMF - ASSET")
+    st.markdown("### Bem-vindo ao Sistema de Gestão de Portfólio")
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 📄 Iniciar Nova Carteira")
+        st.info("Inicie uma nova análise utilizando nossa carteira modelo pré-definida e altere conforme desejar.")
+        if st.button("Criar Nova Carteira", use_container_width=True):
+            st.session_state['started'] = True
+            st.rerun()
+            
+    with col2:
+        st.markdown("#### 💾 Continuar Trabalho")
+        st.success("Cole abaixo o código da carteira que você salvou anteriormente para restaurar todo o seu progresso.")
+        codigo_salvo = st.text_input("Cole seu código de salvamento aqui:")
+        if st.button("Carregar Trabalho", use_container_width=True):
+            if codigo_salvo:
+                cart_importada = importar_codigo_carteira(codigo_salvo)
+                if cart_importada:
+                    st.session_state['carteira'] = cart_importada
+                    st.session_state['started'] = True
+                    st.session_state['carteira_alterada'] = True 
+                    st.rerun()
+                else:
+                    st.error("Código inválido. Verifique se copiou corretamente.")
+            else:
+                st.warning("Por favor, cole um código antes de continuar.")
+                
+    st.markdown(f"<br><br><div style='text-align:center; color:#D4AF37; opacity:0.6'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
+    st.stop() 
+
 try:
     data_1ano_atras = datetime.today() - pd.DateOffset(years=1)
     cdi_recente = fetch_br_indicators(12, data_1ano_atras)
@@ -304,13 +366,14 @@ with st.sidebar:
             
         reinvestir = st.checkbox("Reinvestir Dividendos na Carteira Principal", value=True)
         
-    with st.expander("🔗 Compartilhamento & Comparação", expanded=False):
-        st.markdown("<span style='font-size:0.85em; opacity:0.8;'>Copie o código abaixo para compartilhar sua alocação:</span>", unsafe_allow_html=True)
+    with st.expander("💾 Salvar Trabalho & Comparar", expanded=False):
+        st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**O SEU SAVE:** Copie o código abaixo para salvar o trabalho ou compartilhar.</span>", unsafe_allow_html=True)
         codigo_export = exportar_codigo_carteira(st.session_state.carteira)
         st.code(codigo_export if codigo_export else "Adicione ativos para gerar.")
         
         st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
-        codigo_import = st.text_input("Código de Comparação:", placeholder="Cole o código do colega...")
+        st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**COMPARAR:** Cole o código de outra pessoa abaixo para bater as metas.</span>", unsafe_allow_html=True)
+        codigo_import = st.text_input("Código de Comparação:")
         reinvestir_comp = st.checkbox("Reinvestir Div. (Carteira Importada)", value=True)
         if st.button("Carregar Comparação", use_container_width=True):
             cart_importada = importar_codigo_carteira(codigo_import)
@@ -497,13 +560,14 @@ else:
         st.markdown("---")
         
         # --- ABAS DE ANÁLISE ---
-        abas = ["📈 Rentabilidade Global", "⚙️ Estudo das Métricas"]
-        if st.session_state.carteira_comparacao: abas.append("🆚 Análise de Comparação")
-        abas.append("🕯️ Candlestick (Ativos)")
+        abas_nomes = ["📈 Rentabilidade Global", "⚙️ Estudo das Métricas"]
+        if st.session_state.carteira_comparacao: abas_nomes.append("🆚 Análise de Comparação")
+        abas_nomes.extend(["🔍 Análise Fundamentalista", "🕯️ Candlestick (Ativos)"])
         
-        tabs = st.tabs(abas)
+        tabs = st.tabs(abas_nomes)
         
-        with tabs[0]:
+        tab_idx = 0
+        with tabs[tab_idx]: # Rentabilidade Global
             c_rent_title, c_rent_filt = st.columns([2, 1])
             c_rent_title.markdown("Comparativo de rentabilidade contra os múltiplos benchmarks.")
             
@@ -541,7 +605,8 @@ else:
             fig_rent.update_layout(xaxis_title="", yaxis_title="Acumulado (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
             st.plotly_chart(fig_rent, use_container_width=True)
 
-        with tabs[1]:
+        tab_idx += 1
+        with tabs[tab_idx]: # Estudo das Métricas
             c_estudo, c_filtro = st.columns(2)
             metrica_sel = c_estudo.selectbox("Selecione o Estudo (Sua Carteira):", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
             
@@ -596,7 +661,8 @@ else:
                     st.plotly_chart(fig_beta, use_container_width=True)
 
         if st.session_state.carteira_comparacao:
-            with tabs[2]:
+            tab_idx += 1
+            with tabs[tab_idx]: # Análise Comparação
                 m_comp = calcular_metricas(ret_portfolio_comparacao, ret_bench_principal, cdi_aligned)
                 st.markdown("### 🏆 Confronto Direto de Métricas (Carteiras Completas)")
                 r_p, r_c, win_r = compara_metrica(m_prin[0], m_comp[0], True, True)
@@ -685,8 +751,46 @@ else:
                     cc3.markdown(f"Desempenho: **<span style='color:{'#00FF00' if ret_ind >= 0 else '#FF0000'}'>{formatar_percentual(ret_ind)}</span>**", unsafe_allow_html=True)
                     st.divider()
 
-        with tabs[-1]:
-            ativo_candle = st.selectbox("Ativo:", [t for t in ativos_rv_principal])
+        tab_idx += 1
+        with tabs[tab_idx]: # Análise Fundamentalista
+            if not ativos_rv_principal:
+                st.warning("Adicione ativos de Renda Variável na carteira principal para visualizar a análise fundamentalista.")
+            else:
+                ativo_fund = st.selectbox("Selecione o Ativo para Análise Fundamentalista:", ativos_rv_principal)
+                if ativo_fund:
+                    with st.spinner(f"Extraindo dados fundamentalistas de {ativo_fund}..."):
+                        info = fetch_fundamental_info(ativo_fund)
+                        
+                        if not info or ('trailingPE' not in info and 'marketCap' not in info and 'priceToBook' not in info):
+                            st.warning(f"Dados fundamentalistas não estão disponíveis na API global para o ativo {ativo_fund} no momento.")
+                        else:
+                            st.markdown(f"### 📊 Raio-X Fundamentalista: {ativo_fund}")
+                            st.markdown("---")
+                            
+                            st.subheader("💰 Valuation & Preço", divider='gray')
+                            v1, v2, v3, v4 = st.columns(4)
+                            v1.metric("P/L (Preço/Lucro)", formatar_float(info.get('trailingPE')))
+                            v2.metric("P/VP (Preço/Valor Patrimonial)", formatar_float(info.get('priceToBook')))
+                            v3.metric("Dividend Yield (DY)", formatar_pct_api(info.get('dividendYield')))
+                            v4.metric("PEG Ratio", formatar_float(info.get('pegRatio')))
+                            
+                            st.subheader("📈 Rentabilidade & Eficiência", divider='gray')
+                            r1, r2, r3, r4 = st.columns(4)
+                            r1.metric("ROE (Retorno s/ Patrimônio)", formatar_pct_api(info.get('returnOnEquity')))
+                            r2.metric("ROA (Retorno s/ Ativos)", formatar_pct_api(info.get('returnOnAssets')))
+                            r3.metric("Margem Líquida", formatar_pct_api(info.get('profitMargins')))
+                            r4.metric("Margem Bruta", formatar_pct_api(info.get('grossMargins')))
+                            
+                            st.subheader("🏛️ Saúde Financeira & Estrutura", divider='gray')
+                            s1, s2, s3, s4 = st.columns(4)
+                            s1.metric("Liquidez Corrente", formatar_float(info.get('currentRatio')))
+                            s2.metric("Dívida/Patrimônio", formatar_float(info.get('debtToEquity', 0) / 100 if info.get('debtToEquity') else None))
+                            s3.metric("LPA (Lucro por Ação)", formatar_float(info.get('trailingEps')))
+                            s4.metric("Valor de Mercado", formatar_abrev(info.get('marketCap')))
+
+        tab_idx += 1
+        with tabs[tab_idx]: # Candlestick
+            ativo_candle = st.selectbox("Ativo (Gráfico de Preço):", [t for t in ativos_rv_principal])
             if ativo_candle:
                 df_ohlc = yf.download(ativo_candle, start=data_inicio, progress=False)
                 if not df_ohlc.empty:
