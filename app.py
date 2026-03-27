@@ -703,7 +703,7 @@ else:
                 st.plotly_chart(fig_vol, use_container_width=True)
             elif metrica_sel == "Beta (Risco de Mercado)":
                 var_bench = ret_bench_principal.rolling(janela).var()
-                var_bench = var_bench.where(var_bench > 1e-8, 1e-8) 
+                var_bench = var_bench.where(var_bench > 1e-8, np.nan)
                 df_roll[f"Beta ({setor_filtro})"] = ret_estudo.rolling(janela).cov(ret_bench_principal) / var_bench
                 
                 df_plot = df_roll.dropna()
@@ -757,9 +757,9 @@ else:
                     st.plotly_chart(fig_setores, use_container_width=True)
                     
                     st.markdown("#### 🏆 Métricas do Período por Setor")
-                    html_met_sect = "<table><tr><th>Setor</th><th>Retorno Acumulado</th><th>Volatilidade Anual</th><th>Índice Sharpe</th><th>Max Drawdown</th><th>Beta</th></tr>"
+                    html_met_sect = "<table><tr><th>Setor</th><th>Retorno Acumulado</th><th>Volatilidade Anual</th><th>Índice Sharpe</th><th>Índice Sortino</th><th>Max Drawdown</th><th>Beta</th></tr>"
                     for setor, m in metricas_setores.items():
-                        html_met_sect += f"<tr><td><b>{setor}</b></td><td>{m[0]:.2%}</td><td>{m[1]:.2%}</td><td>{m[2]:.2f}</td><td>{m[4]:.2%}</td><td>{m[6]:.2f}</td></tr>"
+                        html_met_sect += f"<tr><td><b>{setor}</b></td><td>{m[0]:.2%}</td><td>{m[1]:.2%}</td><td>{m[2]:.2f}</td><td>{m[3]:.2f}</td><td>{m[4]:.2%}</td><td>{m[6]:.2f}</td></tr>"
                     html_met_sect += "</table>"
                     st.markdown(html_met_sect, unsafe_allow_html=True)
 
