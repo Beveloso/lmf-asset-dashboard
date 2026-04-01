@@ -10,7 +10,7 @@ import json
 import base64
 import re
 
-# --- 1. CONFIGURAÇÃO VISUAL ---
+# --- 1. CONFIGURAÇÃO VISUAL E EXPORTAÇÃO DE GRÁFICOS ---
 st.set_page_config(page_title="LMF - ASSET", layout="wide")
 
 st.markdown("""
@@ -24,8 +24,29 @@ st.markdown("""
     table { width: 100%; text-align: center; border-collapse: collapse; margin-bottom: 20px; }
     th { border-bottom: 2px solid #D4AF37; color: #D4AF37; padding: 10px; }
     td { border-bottom: 1px solid #333; padding: 10px; }
+    
+    /* CSS de Impressão (Relatório PDF Limpo) */
+    @media print {
+        section[data-testid="stSidebar"] { display: none !important; }
+        header[data-testid="stHeader"] { display: none !important; }
+        div[data-testid="stToolbar"] { display: none !important; }
+    }
     </style>
 """, unsafe_allow_html=True)
+
+# Configuração de Alta Resolução para Slides (Plotly)
+PLOTLY_CONFIG = {
+    'displayModeBar': True,
+    'displaylogo': False,
+    'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+    'toImageButtonOptions': {
+        'format': 'png',
+        'filename': 'LMF_Asset_Grafico',
+        'height': 720,
+        'width': 1280,
+        'scale': 2 # Multiplica a resolução para telas grandes (PowerPoint)
+    }
+}
 
 # --- FUNÇÕES DE IMPORTAÇÃO E FORMATAÇÃO ---
 def formatar_moeda(valor):
@@ -121,15 +142,15 @@ if not st.session_state['started']:
     
     st.markdown("""
     <div style="background-color: #1a1a1a; border: 1px solid #D4AF37; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-        <h4 style="color: #D4AF37; margin-top: 0;">🚀 Update 1.01 (Pós-Apresentação)</h4>
+        <h4 style="color: #D4AF37; margin-top: 0;">🚀 Update 1.02 (Relatórios & Dashboard Avançado)</h4>
         <p style="margin-bottom: 0; color: #e0e0e0;">
-        • Volatilidade rolante agora comparada com todos os benchmarks selecionados.<br>
-        • Correção oficial B3 implementada nos cálculos de juros compostos para Renda Fixa.<br>
-        • Nova opção de simulação de Marcação a Mercado para títulos de Renda Fixa.<br>
-        • Modificar título da carteira (salvo diretamente no seu código de exportação).
+        • <b>Gerador de Relatórios:</b> Aba exclusiva restaurada para montar e imprimir recortes limpos da carteira em PDF.<br>
+        • <b>Dashboard Fundamentalista Turbo:</b> Inclusão de EV/EBITDA, VPA, P/SR e Margem EBITDA para análises profundas.<br>
+        • <b>Gráficos para Slides:</b> Ícone de câmera ativado em todos os gráficos para download em Alta Resolução (PNG).<br>
+        • Modificar título da carteira e simulação de Marcação a Mercado em Renda Fixa ativos.
         </p>
         <p style="margin-top: 15px; margin-bottom: 0; font-size: 0.9em; color: #D4AF37; opacity: 0.8; font-style: italic;">
-        (Caso tenha ideias ou veja erros, entre em contato)
+        (Caso tenha ideias ou veja erros, entre em contato!)
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -378,7 +399,7 @@ def plot_markowitz(ativos_dict, df_rv_c, df_rv_s, cdi_al, idx_m, reinvestir_flag
         fig = px.scatter(df_ef, x='Volatilidade', y='Retorno', color='Sharpe', color_continuous_scale='Viridis', opacity=0.8)
         fig.add_trace(go.Scatter(x=[p_max['Volatilidade']], y=[p_max['Retorno']], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='Máximo Sharpe'))
         fig.update_layout(xaxis_title="Volatilidade Anual", yaxis_title="Retorno Anual", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 def plot_var_histogram(ret_port, title="Distribuição de Retornos Diários", line_color="red"):
     ret_valido = ret_port.dropna()
@@ -389,7 +410,7 @@ def plot_var_histogram(ret_port, title="Distribuição de Retornos Diários", li
     fig = px.histogram(ret_valido, nbins=50, title=title)
     fig.add_vline(x=var_5, line_dash="dash", line_color=line_color, annotation_text=f"VaR 5% = {var_5:.4f}")
     fig.update_layout(xaxis_title="Retorno Diário", yaxis_title="Densidade", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 def compara_metrica(val_p, val_c, is_higher_better=True, is_pct=True):
     vp_str = f"{val_p:.2%}" if is_pct else f"{val_p:.2f}"
@@ -621,15 +642,15 @@ else:
                 visao_grafico = st.radio("Visualizar Alocação por:", ["Ativos", "Setores"], horizontal=True)
                 if visao_grafico == "Ativos":
                     df_pizza = pd.DataFrame({'Ativo': list(st.session_state.carteira.keys()), 'Peso': pesos_norm})
-                    fig = px.pie(df_pizza, values='Peso', names='Ativo', hole=0.5)
+                    fig_pizza_base = px.pie(df_pizza, values='Peso', names='Ativo', hole=0.5)
                 else:
                     setores_lista = [v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]
                     df_pizza = pd.DataFrame({'Setor': setores_lista, 'Peso': pesos_norm})
                     df_pizza = df_pizza.groupby('Setor', as_index=False).sum()
-                    fig = px.pie(df_pizza, values='Peso', names='Setor', hole=0.5)
+                    fig_pizza_base = px.pie(df_pizza, values='Peso', names='Setor', hole=0.5)
                 
-                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), margin=dict(t=0, b=0, l=0, r=0))
-                st.plotly_chart(fig, use_container_width=True)
+                fig_pizza_base.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), margin=dict(t=0, b=0, l=0, r=0))
+                st.plotly_chart(fig_pizza_base, use_container_width=True, config=PLOTLY_CONFIG)
 
         st.markdown("---")
 
@@ -664,11 +685,26 @@ else:
         # --- ABAS DE ANÁLISE ---
         abas_nomes = ["📈 Rentabilidade Global", "🔎 Raio-X da Carteira", "⚙️ Estudo das Métricas", "📊 Comparação Setorial"]
         if st.session_state.carteira_comparacao: abas_nomes.append("🆚 Análise de Comparação")
-        abas_nomes.extend(["🔍 Análise Fundamentalista", "🕯️ Candlestick (Ativos)"])
+        abas_nomes.extend(["🔍 Análise Fundamentalista", "🕯️ Candlestick (Ativos)", "📑 Gerador de Relatório"])
         
         tabs = st.tabs(abas_nomes)
         tab_idx = 0
         
+        # --- LÓGICA DO GRÁFICO DE RENTABILIDADE GLOBAL (Guardado na memória para o relatório) ---
+        df_grafico_rentabilidade = pd.DataFrame(index=idx_mestre)
+        df_grafico_rentabilidade[f"{nome_cart} (%)"] = ((1 + ret_portfolio_principal).cumprod() - 1) * 100
+        color_map_rent = {f"{nome_cart} (%)": "#D4AF37"}
+        
+        if st.session_state.carteira_comparacao:
+            df_grafico_rentabilidade[f"{nome_comp} (%)"] = ((1 + ret_portfolio_comparacao).cumprod() - 1) * 100
+            color_map_rent[f"{nome_comp} (%)"] = "#00BFFF"
+            
+        for nb, serie_bench in dict_ret_benchs.items():
+            df_grafico_rentabilidade[f"{nb} (%)"] = ((1 + serie_bench).cumprod() - 1) * 100
+            
+        fig_rent_global_memoria = px.line(df_grafico_rentabilidade, color_discrete_map=color_map_rent)
+        fig_rent_global_memoria.update_layout(xaxis_title="", yaxis_title="Acumulado (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+
         with tabs[tab_idx]: # Rentabilidade Global
             c_rent_title, c_rent_filt = st.columns([2, 1])
             c_rent_title.markdown("Comparativo de rentabilidade contra os múltiplos benchmarks.")
@@ -680,39 +716,33 @@ else:
                 
             setor_filtro_rent = c_rent_filt.selectbox("Filtrar por Setor (Gráfico):", ["Carteira Completa"] + setores_presentes_rent, key="filt_rent")
             
-            df_grafico = pd.DataFrame(index=idx_mestre)
-            
             if setor_filtro_rent != "Carteira Completa":
+                df_grafico_sect = pd.DataFrame(index=idx_mestre)
                 ret_rent_com_sect, ret_rent_sem_sect = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, marcar_mercado_ativado, setor_filter=setor_filtro_rent)
                 ret_rent_sect = ret_rent_com_sect if reinvestir else ret_rent_sem_sect
-                df_grafico[f"{nome_cart} - {setor_filtro_rent} (%)"] = ((1 + ret_rent_sect).cumprod() - 1) * 100
-                color_map = {f"{nome_cart} - {setor_filtro_rent} (%)": "#D4AF37"}
+                df_grafico_sect[f"{nome_cart} - {setor_filtro_rent} (%)"] = ((1 + ret_rent_sect).cumprod() - 1) * 100
+                color_map_sect = {f"{nome_cart} - {setor_filtro_rent} (%)": "#D4AF37"}
                 
                 if st.session_state.carteira_comparacao:
                     ret_rent_comp_com_sect, ret_rent_comp_sem_sect = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, False, setor_filter=setor_filtro_rent)
                     ret_rent_comp_sect = ret_rent_comp_com_sect if reinvestir_comp else ret_rent_comp_sem_sect
-                    df_grafico[f"{nome_comp} - {setor_filtro_rent} (%)"] = ((1 + ret_rent_comp_sect).cumprod() - 1) * 100
-                    color_map[f"{nome_comp} - {setor_filtro_rent} (%)"] = "#00BFFF"
+                    df_grafico_sect[f"{nome_comp} - {setor_filtro_rent} (%)"] = ((1 + ret_rent_comp_sect).cumprod() - 1) * 100
+                    color_map_sect[f"{nome_comp} - {setor_filtro_rent} (%)"] = "#00BFFF"
+                    
+                for nb, serie_bench in dict_ret_benchs.items():
+                    df_grafico_sect[f"{nb} (%)"] = ((1 + serie_bench).cumprod() - 1) * 100
+                fig_rent_view = px.line(df_grafico_sect, color_discrete_map=color_map_sect)
+                fig_rent_view.update_layout(xaxis_title="", yaxis_title="Acumulado (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+                st.plotly_chart(fig_rent_view, use_container_width=True, config=PLOTLY_CONFIG)
             else:
-                df_grafico[f"{nome_cart} (%)"] = ((1 + ret_portfolio_principal).cumprod() - 1) * 100
-                color_map = {f"{nome_cart} (%)": "#D4AF37"}
-                if st.session_state.carteira_comparacao:
-                    df_grafico[f"{nome_comp} (%)"] = ((1 + ret_portfolio_comparacao).cumprod() - 1) * 100
-                    color_map[f"{nome_comp} (%)"] = "#00BFFF"
-            
-            for nb, serie_bench in dict_ret_benchs.items():
-                df_grafico[f"{nb} (%)"] = ((1 + serie_bench).cumprod() - 1) * 100
-                
-            fig_rent = px.line(df_grafico, color_discrete_map=color_map)
-            fig_rent.update_layout(xaxis_title="", yaxis_title="Acumulado (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-            st.plotly_chart(fig_rent, use_container_width=True)
+                st.plotly_chart(fig_rent_global_memoria, use_container_width=True, config=PLOTLY_CONFIG)
 
         tab_idx += 1
         with tabs[tab_idx]: # Raio-X da Carteira
             st.markdown(f"### 🔎 Análise Financeira Individual ({nome_cart})")
             st.markdown("Confira o capital injetado, o retorno com e sem os dividendos embutidos e o patrimônio exato final de cada ativo na sua carteira.")
             
-            html_table = "<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th><th>Saldo Atualizado</th></tr>"
+            html_table_rx = "<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th><th>Saldo Atualizado</th></tr>"
             
             for i, (t, config) in enumerate(st.session_state.carteira.items()):
                 ret_ind_c = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, True, marcar_mercado_ativado)
@@ -725,10 +755,10 @@ else:
                 color_c = "#4CAF50" if ret_ind_c >= 0 else "#F44336"
                 setor_rx = config.get('setor', 'Renda Fixa' if config['tipo'] == 'RF' else 'Outros')
                 
-                html_table += f"<tr><td><b>{t}</b></td><td>{config['tipo']}</td><td>{setor_rx}</td><td>{formatar_moeda(val_inicial)}</td><td style='color:{color_s}'><b>{formatar_percentual(ret_ind_s)}</b></td><td style='color:{color_c}'><b>{formatar_percentual(ret_ind_c)}</b></td><td><b>{formatar_moeda(val_final)}</b></td></tr>"
+                html_table_rx += f"<tr><td><b>{t}</b></td><td>{config['tipo']}</td><td>{setor_rx}</td><td>{formatar_moeda(val_inicial)}</td><td style='color:{color_s}'><b>{formatar_percentual(ret_ind_s)}</b></td><td style='color:{color_c}'><b>{formatar_percentual(ret_ind_c)}</b></td><td><b>{formatar_moeda(val_final)}</b></td></tr>"
             
-            html_table += "</table>"
-            st.markdown(html_table, unsafe_allow_html=True)
+            html_table_rx += "</table>"
+            st.markdown(html_table_rx, unsafe_allow_html=True)
 
         tab_idx += 1
         with tabs[tab_idx]: # Estudo das Métricas
@@ -759,13 +789,13 @@ else:
                     df_roll[f"VaR 5% ({setor_filtro})"] = ret_estudo.rolling(janela).quantile(0.05)
                     fig_var = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37"])
                     fig_var.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                    st.plotly_chart(fig_var, use_container_width=True)
+                    st.plotly_chart(fig_var, use_container_width=True, config=PLOTLY_CONFIG)
             elif metrica_sel == "Drawdown Histórico":
                 df_roll[f"{setor_filtro} (%)"] = (((1 + ret_estudo).cumprod() / (1 + ret_estudo).cumprod().cummax()) - 1) * 100
                 fig_dd = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37"])
                 fig_dd.update_traces(fill='tozeroy') 
                 fig_dd.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                st.plotly_chart(fig_dd, use_container_width=True)
+                st.plotly_chart(fig_dd, use_container_width=True, config=PLOTLY_CONFIG)
             elif metrica_sel == "Volatilidade Rolante":
                 df_roll[f"{nome_cart} (%)"] = ret_estudo.rolling(janela).std() * np.sqrt(252) * 100
                 for b_name in benchmarks_sel:
@@ -775,7 +805,7 @@ else:
                 
                 fig_vol = px.line(df_roll.dropna())
                 fig_vol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                st.plotly_chart(fig_vol, use_container_width=True)
+                st.plotly_chart(fig_vol, use_container_width=True, config=PLOTLY_CONFIG)
             elif metrica_sel == "Beta (Risco de Mercado)":
                 var_bench = ret_bench_principal.rolling(janela).var()
                 var_bench = var_bench.where(var_bench > 1e-8, np.nan)
@@ -787,7 +817,7 @@ else:
                 else:
                     fig_beta = px.line(df_plot, color_discrete_sequence=["#D4AF37"])
                     fig_beta.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                    st.plotly_chart(fig_beta, use_container_width=True)
+                    st.plotly_chart(fig_beta, use_container_width=True, config=PLOTLY_CONFIG)
 
         tab_idx += 1
         with tabs[tab_idx]: # Comparação Setorial
@@ -829,7 +859,7 @@ else:
                         
                     fig_setores = px.line(df_plot_setores)
                     fig_setores.update_layout(xaxis_title="Data", yaxis_title="Acumulado (%)", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), legend_title_text='Setor')
-                    st.plotly_chart(fig_setores, use_container_width=True)
+                    st.plotly_chart(fig_setores, use_container_width=True, config=PLOTLY_CONFIG)
                     
                     st.markdown("#### 🏆 Métricas do Período por Setor")
                     html_met_sect = "<table><tr><th>Setor</th><th>Retorno Acumulado</th><th>Volatilidade Anual</th><th>Índice Sharpe</th><th>Índice Sortino</th><th>Max Drawdown</th><th>Beta</th></tr>"
@@ -889,21 +919,21 @@ else:
                         df_roll_comp[f"VaR 5% ({setor_filtro_comp})"] = ret_estudo_comp.rolling(janela).quantile(0.05)
                         fig_var_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF"])
                         fig_var_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                        st.plotly_chart(fig_var_c, use_container_width=True)
+                        st.plotly_chart(fig_var_c, use_container_width=True, config=PLOTLY_CONFIG)
                 
                 elif est_comp == "Drawdown Histórico":
                     df_roll_comp[f"{nome_comp} ({setor_filtro_comp}) %"] = (((1 + ret_estudo_comp).cumprod() / (1 + ret_estudo_comp).cumprod().cummax()) - 1) * 100
                     fig_dd_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF"])
                     fig_dd_c.update_traces(fill='tozeroy') 
                     fig_dd_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                    st.plotly_chart(fig_dd_c, use_container_width=True)
+                    st.plotly_chart(fig_dd_c, use_container_width=True, config=PLOTLY_CONFIG)
                 
                 elif est_comp == "Volatilidade Rolante":
                     df_roll_comp[f"{nome_comp} ({setor_filtro_comp}) %"] = ret_estudo_comp.rolling(janela).std() * np.sqrt(252) * 100
                     df_roll_comp[f"{nome_bench_principal} (%)"] = ret_bench_principal.rolling(janela).std() * np.sqrt(252) * 100
                     fig_vol_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF", "#555555"])
                     fig_vol_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                    st.plotly_chart(fig_vol_c, use_container_width=True)
+                    st.plotly_chart(fig_vol_c, use_container_width=True, config=PLOTLY_CONFIG)
                 
                 elif est_comp == "Beta (Risco de Mercado)":
                     var_bench = ret_bench_principal.rolling(janela).var()
@@ -916,7 +946,7 @@ else:
                     else:
                         fig_beta_c = px.line(df_plot_c, color_discrete_sequence=["#00BFFF"])
                         fig_beta_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
-                        st.plotly_chart(fig_beta_c, use_container_width=True)
+                        st.plotly_chart(fig_beta_c, use_container_width=True, config=PLOTLY_CONFIG)
                 
                 st.markdown(f"### 🔎 RX dos Ativos ({nome_comp})")
                 st.write(f"Cálculo de Dividendos: **{'Reinvestidos' if reinvestir_comp else 'Não Reinvestidos'}**")
@@ -950,33 +980,36 @@ else:
                             st.warning(f"Dados fundamentalistas não estão disponíveis na API global para o ativo {ativo_fund} no momento.")
                         else:
                             st.markdown(f"### 📊 Raio-X Fundamentalista: {ativo_fund}")
-                            st.caption("⚠️ **Aviso de Dados:** As métricas abaixo são extraídas de provedores públicos globais. Para garantir 100% de precisão e segurança na tomada de decisão, consulte os demonstrativos oficiais em sites de RI (Relações com Investidores) ou plataformas profissionais certificadas.")
+                            st.caption("⚠️ **Aviso de Dados:** As métricas abaixo são extraídas de provedores públicos globais. Para garantir 100% de precisão, consulte os demonstrativos oficiais em sites de RI ou plataformas profissionais certificadas.")
                             st.markdown("---")
                             
                             st.subheader("💰 Valuation & Preço", divider='gray')
-                            v1, v2, v3, v4 = st.columns(4)
+                            v1, v2, v3, v4, v5 = st.columns(5)
                             v1.metric("P/L (Preço/Lucro)", formatar_float(info.get('trailingPE') or info.get('forwardPE')))
-                            v2.metric("P/VP (Preço/Valor Patrimonial)", formatar_float(info.get('priceToBook')))
-                            v3.metric("Dividend Yield (DY)", formatar_dy(info.get('trailingAnnualDividendYield') or info.get('dividendYield')))
-                            v4.metric("PEG Ratio", formatar_float(info.get('pegRatio')))
+                            v2.metric("P/VP", formatar_float(info.get('priceToBook')))
+                            v3.metric("EV/EBITDA", formatar_float(info.get('enterpriseToEbitda')))
+                            v4.metric("P/SR (Receita)", formatar_float(info.get('priceToSalesTrailing12Months')))
+                            v5.metric("Dividend Yield", formatar_dy(info.get('trailingAnnualDividendYield') or info.get('dividendYield')))
                             
                             st.subheader("📈 Rentabilidade & Eficiência", divider='gray')
-                            r1, r2, r3, r4 = st.columns(4)
-                            r1.metric("ROE (Retorno s/ Patrimônio)", formatar_pct_api(info.get('returnOnEquity')))
+                            r1, r2, r3, r4, r5 = st.columns(5)
+                            r1.metric("ROE (Retorno s/ PL)", formatar_pct_api(info.get('returnOnEquity')))
                             r2.metric("ROA (Retorno s/ Ativos)", formatar_pct_api(info.get('returnOnAssets')))
-                            r3.metric("Margem Líquida", formatar_pct_api(info.get('profitMargins')))
-                            r4.metric("Margem Bruta", formatar_pct_api(info.get('grossMargins')))
+                            r3.metric("Margem Bruta", formatar_pct_api(info.get('grossMargins')))
+                            r4.metric("Margem EBITDA", formatar_pct_api(info.get('ebitdaMargins')))
+                            r5.metric("Margem Líquida", formatar_pct_api(info.get('profitMargins')))
                             
                             st.subheader("🏛️ Saúde Financeira & Estrutura", divider='gray')
-                            s1, s2, s3, s4 = st.columns(4)
+                            s1, s2, s3, s4, s5 = st.columns(5)
                             s1.metric("Liquidez Corrente", formatar_float(info.get('currentRatio')))
                             
                             div_pat_val = info.get('debtToEquity')
                             div_pat_str = formatar_float(div_pat_val / 100) if div_pat_val and div_pat_val != 0 else "N/A"
                             s2.metric("Dívida/Patrimônio", div_pat_str)
                             
-                            s3.metric("LPA (Lucro por Ação)", formatar_float(info.get('trailingEps') or info.get('forwardEps')))
-                            s4.metric("Valor de Mercado", formatar_abrev(info.get('marketCap')))
+                            s3.metric("VPA (Val. Patr. Ação)", formatar_float(info.get('bookValue')))
+                            s4.metric("LPA (Lucro Ação)", formatar_float(info.get('trailingEps') or info.get('forwardEps')))
+                            s5.metric("Valor de Mercado", formatar_abrev(info.get('marketCap')))
                             
                             # --- EVOLUÇÃO HISTÓRICA ---
                             st.markdown("<br>", unsafe_allow_html=True)
@@ -1036,7 +1069,7 @@ else:
                                         yaxis_title="Valor Nominal",
                                         yaxis=dict(showticklabels=False)
                                     )
-                                    st.plotly_chart(fig_hist, use_container_width=True)
+                                    st.plotly_chart(fig_hist, use_container_width=True, config=PLOTLY_CONFIG)
                                 else:
                                     st.warning(f"Dados anuais de {metrica_hist} não encontrados para este ativo.")
                             else:
@@ -1063,8 +1096,50 @@ else:
                         yaxis_title="Cotação / Preço",
                         xaxis_rangeslider_visible=False
                     )
-                    st.plotly_chart(fig_c, use_container_width=True)
+                    st.plotly_chart(fig_c, use_container_width=True, config=PLOTLY_CONFIG)
 
-        if st.button("🖨️ Salvar Relatório em PDF", use_container_width=True):
-            components.html("<script>window.parent.print();</script>", height=0)
-        st.markdown(f"<div style='text-align:right; color:#D4AF37; opacity:0.6'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
+        tab_idx += 1
+        with tabs[tab_idx]: # Gerador de Relatório
+            st.markdown("<div id='gerador-de-relat-rio-personalizado'></div>", unsafe_allow_html=True)
+            st.markdown(f"### 📑 Gerador de Relatório Personalizado ({nome_cart})")
+            st.info("Selecione os módulos abaixo que você deseja compilar no documento. As barras laterais e menus serão ocultados automaticamente durante a impressão, gerando um PDF com fundo adaptado.")
+            
+            c_rel1, c_rel2 = st.columns(2)
+            inc_comp = c_rel1.checkbox("Incluir Gráfico de Alocação e Pesos", value=True)
+            inc_metr = c_rel1.checkbox("Incluir Resumo de Métricas Globais", value=True)
+            inc_rent = c_rel2.checkbox("Incluir Gráfico de Rentabilidade Histórica", value=True)
+            inc_rx = c_rel2.checkbox("Incluir Tabela de Raio-X Individual", value=False)
+            
+            st.divider()
+            
+            if inc_comp:
+                st.subheader("1. Composição da Carteira")
+                st.plotly_chart(fig_pizza_base, use_container_width=True, config=PLOTLY_CONFIG, key="relatorio_pizza")
+                st.write("")
+                
+            if inc_metr:
+                st.subheader("2. Desempenho e Risco")
+                c_rel_m1, c_rel_m2, c_rel_m3, c_rel_m4 = st.columns(4)
+                c_rel_m1.metric("Rentabilidade Acumulada", f"{m_prin[0]:.2%}")
+                c_rel_m2.metric("Índice Sharpe", f"{m_prin[2]:.2f}")
+                c_rel_m3.metric("Volatilidade Anual", f"{m_prin[1]:.2%}")
+                c_rel_m4.metric("Max Drawdown", f"{m_prin[4]:.2%}")
+                st.write("")
+                
+            if inc_rent:
+                st.subheader("3. Evolução Patrimonial")
+                st.plotly_chart(fig_rent_global_memoria, use_container_width=True, config=PLOTLY_CONFIG, key="relatorio_rentabilidade")
+                st.write("")
+                
+            if inc_rx:
+                st.subheader("4. Raio-X de Ativos")
+                st.markdown(html_table_rx, unsafe_allow_html=True)
+            
+            st.divider()
+            
+            c_b1, c_b2, c_b3 = st.columns([1,2,1])
+            with c_b2:
+                if st.button("🖨️ GERAR PDF / IMPRIMIR RELATÓRIO", use_container_width=True):
+                    components.html("<script>window.parent.print();</script>", height=0)
+
+        st.markdown(f"<div style='text-align:right; color:#D4AF37; opacity:0.6; margin-top: 50px;'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
