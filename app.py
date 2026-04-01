@@ -91,7 +91,7 @@ if 'started' not in st.session_state:
     st.session_state['carteira_comparacao'] = {}
 
 OPCOES_SETORES = [
-    "Não Informado", "Consumo Cíclico", "Consumo não Cíclico", "Utilidade Pública",
+    "Outros", "Consumo Cíclico", "Consumo não Cíclico", "Utilidade Pública",
     "Bens Industriais", "Materiais Básicos", "Financeiro e Outros",
     "Tecnologia da Informação", "Saúde", "Petróleo, Gás e Biocombustíveis", "Comunicações"
 ]
@@ -113,9 +113,9 @@ if not st.session_state['started']:
             dt_padrao = datetime(2012, 1, 1).date()
             st.session_state['carteira'] = {
                 'QQQ': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Tecnologia da Informação'},
-                'JEPI': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Não Informado'},
+                'JEPI': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Outros'},
                 'PETR4.SA': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Petróleo, Gás e Biocombustíveis'},
-                'IVV': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Não Informado'},
+                'IVV': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Outros'},
                 'CDI 100%': {'tipo': 'RF', 'indexador': 'CDI', 'taxa': 1.0, 'aporte': 10.0, 'data_compra': dt_padrao},
                 'IPCA+ 7%': {'tipo': 'RF', 'indexador': 'IPCA+', 'taxa': 0.07, 'aporte': 10.0, 'data_compra': dt_padrao},
                 'VALE3.SA': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Materiais Básicos'},
@@ -222,7 +222,7 @@ def calcular_metricas(ret_p, ret_m, cdi_s):
 
 def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, reinvest_flag, setor_filter="Carteira Completa"):
     if setor_filter != "Carteira Completa":
-        filtered_dict = {k: v for k, v in dict_carteira.items() if (v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filter}
+        filtered_dict = {k: v for k, v in dict_carteira.items() if (v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filter}
         dict_carteira = filtered_dict
 
     if not dict_carteira: return pd.Series(0, index=idx_m), pd.Series(0, index=idx_m)
@@ -536,7 +536,7 @@ else:
             for i, (t, config) in enumerate(st.session_state.carteira.items()):
                 c1, c2, c3 = st.columns([3, 1, 1])
                 dt_c = config['data_compra'].strftime('%d/%m/%y')
-                setor_str = config.get('setor', 'Não Informado') if config['tipo'] == 'RV' else 'Renda Fixa'
+                setor_str = config.get('setor', 'Outros') if config['tipo'] == 'RV' else 'Renda Fixa'
                 info_alocacao = f"{formatar_moeda(config['aporte'])} ({pesos_norm[i]:.1%})" if modo_aporte == "Por Valor Financeiro (R$)" else f"{pesos_norm[i]:.1%}"
                 c1.markdown(f"**{t}** *(Início: {dt_c} | {setor_str})*")
                 c2.markdown(info_alocacao)
@@ -552,7 +552,7 @@ else:
                     df_pizza = pd.DataFrame({'Ativo': list(st.session_state.carteira.keys()), 'Peso': pesos_norm})
                     fig = px.pie(df_pizza, values='Peso', names='Ativo', hole=0.5)
                 else:
-                    setores_lista = [v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]
+                    setores_lista = [v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]
                     df_pizza = pd.DataFrame({'Setor': setores_lista, 'Peso': pesos_norm})
                     df_pizza = df_pizza.groupby('Setor', as_index=False).sum()
                     fig = px.pie(df_pizza, values='Peso', names='Setor', hole=0.5)
@@ -602,9 +602,9 @@ else:
             c_rent_title, c_rent_filt = st.columns([2, 1])
             c_rent_title.markdown("Comparativo de rentabilidade contra os múltiplos benchmarks.")
             
-            setores_presentes_rent = list(set([v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
+            setores_presentes_rent = list(set([v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
             if st.session_state.carteira_comparacao:
-                setores_presentes_rent.extend(list(set([v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira_comparacao.values()])))
+                setores_presentes_rent.extend(list(set([v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira_comparacao.values()])))
                 setores_presentes_rent = list(set(setores_presentes_rent))
                 
             setor_filtro_rent = c_rent_filt.selectbox("Filtrar por Setor (Gráfico):", ["Carteira Completa"] + setores_presentes_rent, key="filt_rent")
@@ -652,7 +652,7 @@ else:
                 
                 color_s = "#4CAF50" if ret_ind_s >= 0 else "#F44336" 
                 color_c = "#4CAF50" if ret_ind_c >= 0 else "#F44336"
-                setor_rx = config.get('setor', 'Renda Fixa' if config['tipo'] == 'RF' else 'Não Informado')
+                setor_rx = config.get('setor', 'Renda Fixa' if config['tipo'] == 'RF' else 'Outros')
                 
                 html_table += f"<tr><td><b>{t}</b></td><td>{config['tipo']}</td><td>{setor_rx}</td><td>{formatar_moeda(val_inicial)}</td><td style='color:{color_s}'><b>{formatar_percentual(ret_ind_s)}</b></td><td style='color:{color_c}'><b>{formatar_percentual(ret_ind_c)}</b></td><td><b>{formatar_moeda(val_final)}</b></td></tr>"
             
@@ -664,13 +664,13 @@ else:
             c_estudo, c_filtro = st.columns(2)
             metrica_sel = c_estudo.selectbox("Selecione o Estudo (Sua Carteira):", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
             
-            setores_presentes = list(set([v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
+            setores_presentes = list(set([v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
             setor_filtro = c_filtro.selectbox("Filtrar por Setor:", ["Carteira Completa"] + setores_presentes)
             
             if setor_filtro != "Carteira Completa":
                 ret_estudo_com, ret_estudo_sem = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, setor_filter=setor_filtro)
                 ret_estudo = ret_estudo_com if reinvestir else ret_estudo_sem
-                dict_estudo = {k: v for k, v in st.session_state.carteira.items() if (v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filtro}
+                dict_estudo = {k: v for k, v in st.session_state.carteira.items() if (v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filtro}
             else:
                 ret_estudo = ret_portfolio_principal
                 dict_estudo = st.session_state.carteira
@@ -723,7 +723,7 @@ else:
             dt_start = c_dates1.date_input("Data de Início:", value=data_inicio, min_value=data_inicio, max_value=datetime.today())
             dt_end = c_dates2.date_input("Data de Fim:", value=datetime.today().date(), min_value=dt_start, max_value=datetime.today())
             
-            setores_disponiveis = list(set([v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
+            setores_disponiveis = list(set([v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
             setores_selecionados = st.multiselect("Selecione os Setores para Comparar:", setores_disponiveis, default=setores_disponiveis[:3] if len(setores_disponiveis) >= 3 else setores_disponiveis)
             
             if not setores_selecionados:
@@ -789,13 +789,13 @@ else:
                 c_est_c, c_filt_c = st.columns(2)
                 est_comp = c_est_c.selectbox("Análise Específica do Colega:", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
                 
-                setores_presentes_comp = list(set([v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira_comparacao.values()]))
+                setores_presentes_comp = list(set([v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira_comparacao.values()]))
                 setor_filtro_comp = c_filt_c.selectbox("Filtrar por Setor (Importada):", ["Carteira Completa"] + setores_presentes_comp)
                 
                 if setor_filtro_comp != "Carteira Completa":
                     ret_estudo_comp_com, ret_estudo_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, setor_filter=setor_filtro_comp)
                     ret_estudo_comp = ret_estudo_comp_com if reinvestir_comp else ret_estudo_comp_sem
-                    dict_estudo_comp = {k: v for k, v in st.session_state.carteira_comparacao.items() if (v.get('setor', 'Não Informado') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filtro_comp}
+                    dict_estudo_comp = {k: v for k, v in st.session_state.carteira_comparacao.items() if (v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filtro_comp}
                 else:
                     ret_estudo_comp = ret_portfolio_comparacao
                     dict_estudo_comp = st.session_state.carteira_comparacao
@@ -853,7 +853,7 @@ else:
                     
                     color_s = "#4CAF50" if ret_ind_s >= 0 else "#F44336" 
                     color_c = "#4CAF50" if ret_ind_c >= 0 else "#F44336"
-                    setor_c = config.get('setor', 'Não Informado') if config['tipo'] == 'RV' else 'Renda Fixa'
+                    setor_c = config.get('setor', 'Outros') if config['tipo'] == 'RV' else 'Renda Fixa'
                     peso_inicial_str = formatar_moeda(config['aporte']) if modo_aporte == 'Por Valor Financeiro (R$)' else str(config['aporte']) + '%'
                     
                     html_table_comp += f"<tr><td><b>{t}</b></td><td>{config['tipo']}</td><td>{setor_c}</td><td>{peso_inicial_str}</td><td style='color:{color_s}'><b>{formatar_percentual(ret_ind_s)}</b></td><td style='color:{color_c}'><b>{formatar_percentual(ret_ind_c)}</b></td></tr>"
