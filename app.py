@@ -35,6 +35,34 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- SISTEMA DE BANNER (MODAL DE ATUALIZAÇÃO OBRIGATÓRIO) ---
+if 'banner_closed' not in st.session_state:
+    st.session_state['banner_closed'] = False
+
+if not st.session_state['banner_closed']:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        st.markdown("""
+        <div style="background-color: #1a1a1a; border: 2px solid #D4AF37; padding: 40px; border-radius: 12px; box-shadow: 0px 0px 20px rgba(212, 175, 55, 0.2);">
+            <h1 style="color: #D4AF37; margin-top: 0; text-align: center;">🚀 Update 1.01</h1>
+            <hr style="border-color: #D4AF37; opacity: 0.3;">
+            <p style="color: #e0e0e0; font-size: 1.1em; line-height: 1.8;">
+            <b>O que há de novo no sistema:</b><br><br>
+            • Adição de opção para modificação de título da carteira<br>
+            • Melhoria no salvamento de relatório<br>
+            • Melhorias na renda fixa<br>
+            • Melhorias na analise fundamentalista<br>
+            • Melhoria na visualização de gráfico em "candle"
+            </p>
+        </div>
+        <br>
+        """, unsafe_allow_html=True)
+        if st.button("✅ COMPREENDIDO - ACESSAR O SISTEMA", use_container_width=True):
+            st.session_state['banner_closed'] = True
+            st.rerun()
+    st.stop() # Interrompe a renderização para obrigar o usuário a ler e fechar
+
 # Configuração de Alta Resolução para Slides (Plotly)
 PLOTLY_CONFIG = {
     'displayModeBar': True,
@@ -119,7 +147,6 @@ def importar_codigo_carteira(codigo_b64):
     except:
         return None, "Carteira Importada"
 
-# Funções de Transição de Tela
 def ativar_modo_impressao():
     st.session_state['modo_impressao'] = True
 
@@ -134,14 +161,13 @@ if 'started' not in st.session_state:
     st.session_state['carteira_comparacao'] = {}
     st.session_state['modo_impressao'] = False
 
-# Estados do Gerador de Relatório
 if 'rel_comp' not in st.session_state: st.session_state['rel_comp'] = True
 if 'rel_metr' not in st.session_state: st.session_state['rel_metr'] = True
 if 'rel_rent' not in st.session_state: st.session_state['rel_rent'] = True
 if 'rel_rx' not in st.session_state: st.session_state['rel_rx'] = False
     
 if 'nome_carteira' not in st.session_state:
-    st.session_state['nome_carteira'] = "Sua Carteira"
+    st.session_state['nome_carteira'] = "Minha Carteira"
 if 'nome_carteira_comparacao' not in st.session_state:
     st.session_state['nome_carteira_comparacao'] = "Carteira Importada"
 
@@ -154,20 +180,6 @@ OPCOES_SETORES = [
 # --- TELA DE "SPLASH SCREEN" (LOGIN / NOVO TRABALHO) ---
 if not st.session_state['started']:
     st.title("🏛️ LMF - ASSET")
-    
-    st.markdown("""
-    <div style="background-color: #1a1a1a; border: 1px solid #D4AF37; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-        <h4 style="color: #D4AF37; margin-top: 0;">🚀 Update 1.03 (Motor de Impressão Definitivo)</h4>
-        <p style="margin-bottom: 0; color: #e0e0e0;">
-        • <b>Modo de Impressão Isolado:</b> O Gerador de Relatórios agora esconde todo o sistema e cria uma tela branca focada 100% no PDF final, evitando que os menus poluam a impressão.<br>
-        • <b>Métricas para Slides (PNG):</b> As métricas da carteira agora são desenhadas como Tabelas Plotly. Isso significa que você pode exportar a rentabilidade, Sharpe, etc., como imagem transparente direto para o PowerPoint!<br>
-        • Dashboard Fundamentalista Turbo com 15 indicadores integrados.<br>
-        </p>
-        <p style="margin-top: 15px; margin-bottom: 0; font-size: 0.9em; color: #D4AF37; opacity: 0.8; font-style: italic;">
-        (Caso tenha ideias ou veja erros, entre em contato!)
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
     
     st.markdown("### Bem-vindo ao Sistema de Gestão de Portfólio")
     st.markdown("---")
@@ -376,8 +388,6 @@ def calcular_retorno_individual(ticker, config, df_rv_c, df_rv_s, cdi_al, ipca_a
         return (1 + rs_serie).prod() - 1
     return 0.0
 
-# === FUNÇÕES DE PLOTAGEM RECUPERADAS ===
-
 def plot_markowitz(ativos_dict, df_rv_c, df_rv_s, cdi_al, idx_m, reinvestir_flag):
     ativos_rv_validos = [k for k, v in ativos_dict.items() if v['tipo'] == 'RV']
     if len(ativos_rv_validos) < 2:
@@ -437,7 +447,6 @@ def compara_metrica(val_p, val_c, is_higher_better=True, is_pct=True):
     else: return vp_str, f"⭐ {vc_str}", "Comparada"
 
 def plot_tabela_metricas(m_prin, nome_cart):
-    """Gera uma tabela Plotly elegante para as métricas, permitindo exportação em PNG"""
     fig = go.Figure(data=[go.Table(
         header=dict(values=['Métrica', nome_cart],
                     fill_color='#1a1a1a',
@@ -455,8 +464,6 @@ def plot_tabela_metricas(m_prin, nome_cart):
     ])
     fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor='rgba(0,0,0,0)', height=300)
     return fig
-
-# =======================================
 
 try:
     data_1ano_atras = datetime.today() - pd.DateOffset(years=1)
@@ -588,7 +595,7 @@ with st.sidebar:
         st.rerun()
 
 # Nomes padronizados para o painel
-nome_cart = st.session_state.get('nome_carteira', 'Sua Carteira')
+nome_cart = st.session_state.get('nome_carteira', 'Minha Carteira')
 nome_comp = st.session_state.get('nome_carteira_comparacao', 'Carteira Importada')
 
 # --- PRÉ-PROCESSAMENTO CENTRAL DOS DADOS (Motor) ---
@@ -648,12 +655,10 @@ if st.session_state.carteira:
     m_prin = calcular_metricas(ret_portfolio_principal, ret_bench_principal, cdi_aligned)
 
     # --- LÓGICA DE GERAÇÃO DOS GRÁFICOS MASTER (Usados no App e no Relatório Limpo) ---
-    # Gráfico de Pizza
     df_pizza = pd.DataFrame({'Ativo': list(st.session_state.carteira.keys()), 'Peso': pesos_norm})
     fig_pizza_base = px.pie(df_pizza, values='Peso', names='Ativo', hole=0.5)
     fig_pizza_base.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), margin=dict(t=0, b=0, l=0, r=0))
 
-    # Tabela de Raio-X HTML
     html_table_rx = "<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th><th>Saldo Atualizado</th></tr>"
     for i, (t, config) in enumerate(st.session_state.carteira.items()):
         ret_ind_c = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, True, marcar_mercado_ativado)
@@ -666,7 +671,6 @@ if st.session_state.carteira:
         html_table_rx += f"<tr><td><b>{t}</b></td><td>{config['tipo']}</td><td>{setor_rx}</td><td>{formatar_moeda(val_inicial)}</td><td style='color:{color_s}'><b>{formatar_percentual(ret_ind_s)}</b></td><td style='color:{color_c}'><b>{formatar_percentual(ret_ind_c)}</b></td><td><b>{formatar_moeda(val_final)}</b></td></tr>"
     html_table_rx += "</table>"
 
-    # Gráfico de Rentabilidade Global
     df_grafico_rentabilidade = pd.DataFrame(index=idx_mestre)
     df_grafico_rentabilidade[f"{nome_cart} (%)"] = ((1 + ret_portfolio_principal).cumprod() - 1) * 100
     color_map_rent = {f"{nome_cart} (%)": "#D4AF37"}
@@ -684,10 +688,10 @@ if st.session_state.carteira:
 
 # --- 5. RENDERIZAÇÃO: MODO IMPRESSÃO LIMPA VS MODO DASHBOARD NORMAL ---
 if st.session_state.get('modo_impressao', False) and st.session_state.carteira:
-    # Apenas injeta a UI de impressão e PARA o script aqui.
     st.button("⬅️ VOLTAR AO DASHBOARD NORMAL", on_click=desativar_modo_impressao)
     
-    st.markdown(f"<h1 style='text-align: center;'>📑 Relatório de Desempenho: {nome_cart}</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; color: #D4AF37; font-size: 3em;'>{nome_cart}</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; color: #e0e0e0; margin-top: -15px;'>📑 Relatório de Desempenho | LMF - ASSET</h3>", unsafe_allow_html=True)
     st.markdown("---")
     
     if st.session_state.get('rel_comp', True):
@@ -697,7 +701,6 @@ if st.session_state.get('modo_impressao', False) and st.session_state.carteira:
         
     if st.session_state.get('rel_metr', True):
         st.subheader("2. Quadro de Métricas de Risco/Retorno")
-        # Essa é a tabela Plotly criada para poder ser baixada como PNG pelo ícone da câmera!
         fig_tbl_met = plot_tabela_metricas(m_prin, nome_cart)
         st.plotly_chart(fig_tbl_met, use_container_width=True, config=PLOTLY_CONFIG, key="tbl_print")
         st.write("")
@@ -718,7 +721,7 @@ if st.session_state.get('modo_impressao', False) and st.session_state.carteira:
         if st.button("🖨️ CONFIRMAR IMPRESSÃO / SALVAR PDF", use_container_width=True):
             components.html("<script>window.parent.print();</script>", height=0)
             
-    st.stop() # INTERROMPE O SCRIPT (Garante que as abas debaixo nunca apareçam no PDF)
+    st.stop()
 
 
 # ==============================================================================
@@ -728,9 +731,10 @@ if st.session_state.get('modo_impressao', False) and st.session_state.carteira:
 if not st.session_state.carteira:
     pass # Tratado no topo (st.info)
 else:
-    # --- SEÇÃO 1: COMPOSIÇÃO ---
-    st.title("🏛️ LMF - ASSET")
-    st.header(f"🛒 Posições e Alocação ({nome_cart})")
+    st.markdown(f"<h1 style='color: #D4AF37; font-size: 3rem;'>{nome_cart}</h1>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #e0e0e0; margin-top: -15px; margin-bottom: 30px; opacity: 0.8;'>🏛️ Powered by LMF - ASSET</h4>", unsafe_allow_html=True)
+    
+    st.header("🛒 Posições e Alocação")
     c_lista, c_grafico = st.columns([1, 1.5])
     with c_lista:
         for i, (t, config) in enumerate(st.session_state.carteira.items()):
@@ -759,8 +763,7 @@ else:
 
     st.markdown("---")
 
-    # --- SEÇÃO 2: MÉTRICAS GLOBAIS ---
-    st.header(f"📊 Resumo de Desempenho ({nome_cart})")
+    st.header("📊 Resumo de Desempenho")
     
     ret_port_com_acum = (1 + ret_port_com_full).prod() - 1
     ret_port_sem_acum = (1 + ret_port_sem_full).prod() - 1
@@ -786,10 +789,9 @@ else:
 
     st.markdown("---")
     
-    # --- ABAS DE ANÁLISE ---
     abas_nomes = ["📈 Rentabilidade Global", "🔎 Raio-X da Carteira", "⚙️ Estudo das Métricas", "📊 Comparação Setorial"]
     if st.session_state.carteira_comparacao: abas_nomes.append("🆚 Análise de Comparação")
-    abas_nomes.extend(["🔍 Análise Fundamentalista", "🕯️ Candlestick (Ativos)", "📑 Gerador de Relatório"])
+    abas_nomes.extend(["🔍 Análise de Ativos", "📑 Gerador de Relatório"])
     
     tabs = st.tabs(abas_nomes)
     tab_idx = 0
@@ -828,14 +830,14 @@ else:
 
     tab_idx += 1
     with tabs[tab_idx]: # Raio-X da Carteira
-        st.markdown(f"### 🔎 Análise Financeira Individual ({nome_cart})")
+        st.markdown("### 🔎 Análise Financeira Individual")
         st.markdown("Confira o capital injetado, o retorno com e sem os dividendos embutidos e o patrimônio exato final de cada ativo na sua carteira.")
         st.markdown(html_table_rx, unsafe_allow_html=True)
 
     tab_idx += 1
     with tabs[tab_idx]: # Estudo das Métricas
         c_estudo, c_filtro = st.columns(2)
-        metrica_sel = c_estudo.selectbox(f"Selecione o Estudo ({nome_cart}):", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
+        metrica_sel = c_estudo.selectbox("Selecione o Estudo:", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
         
         setores_presentes = list(set([v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
         setor_filtro = c_filtro.selectbox("Filtrar por Setor:", ["Carteira Completa"] + setores_presentes)
@@ -893,7 +895,7 @@ else:
 
     tab_idx += 1
     with tabs[tab_idx]: # Comparação Setorial
-        st.markdown(f"### 📊 Análise Setorial Personalizada ({nome_cart})")
+        st.markdown("### 📊 Análise Setorial Personalizada")
         st.markdown("Filtre janelas de tempo específicas e compare o risco/retorno dos setores presentes na sua carteira.")
         
         c_dates1, c_dates2 = st.columns(2)
@@ -1038,13 +1040,13 @@ else:
             st.markdown(html_table_comp, unsafe_allow_html=True)
 
     tab_idx += 1
-    with tabs[tab_idx]: # Análise Fundamentalista
+    with tabs[tab_idx]: # Análise Fundamentalista & Gráficos
         if not ativos_rv_principal:
-            st.warning("Adicione ativos de Renda Variável na carteira principal para visualizar a análise fundamentalista.")
+            st.warning("Adicione ativos de Renda Variável na carteira principal para visualizar a análise fundamentalista e os gráficos de preço.")
         else:
-            ativo_fund = st.selectbox("Selecione o Ativo para Análise Fundamentalista:", ativos_rv_principal)
+            ativo_fund = st.selectbox("Selecione o Ativo para Análise Individual:", ativos_rv_principal)
             if ativo_fund:
-                with st.spinner(f"Extraindo dados fundamentalistas e contábeis de {ativo_fund}..."):
+                with st.spinner(f"Extraindo dados fundamentalistas, contábeis e de preço de {ativo_fund}..."):
                     info = fetch_fundamental_info(ativo_fund)
                     fin, bs, cf = fetch_historical_fundamentals(ativo_fund)
                     
@@ -1146,33 +1148,41 @@ else:
                                 st.warning(f"Dados anuais de {metrica_hist} não encontrados para este ativo.")
                         else:
                             st.warning("O histórico contábil deste ativo não está disponível na base de dados global.")
-
-    tab_idx += 1
-    with tabs[tab_idx]: # Candlestick
-        ativo_candle = st.selectbox("Ativo (Gráfico de Preço):", [t for t in ativos_rv_principal])
-        if ativo_candle:
-            df_ohlc = yf.download(ativo_candle, start=data_inicio, progress=False, auto_adjust=False)
-            if df_ohlc.empty or 'Open' not in df_ohlc:
-                st.warning("Dados indisponíveis para o carregamento do gráfico deste ativo no momento.")
-            else:
-                o = df_ohlc['Open'].squeeze()
-                h = df_ohlc['High'].squeeze()
-                l = df_ohlc['Low'].squeeze()
-                c = df_ohlc['Close'].squeeze()
-                fig_c = go.Figure(data=[go.Candlestick(x=df_ohlc.index, open=o, high=h, low=l, close=c)])
-                fig_c.update_layout(
-                    paper_bgcolor='rgba(0,0,0,0)', 
-                    plot_bgcolor='rgba(0,0,0,0)', 
-                    font=dict(color='#D4AF37'),
-                    xaxis_title="Data",
-                    yaxis_title="Cotação / Preço",
-                    xaxis_rangeslider_visible=False
-                )
-                st.plotly_chart(fig_c, use_container_width=True, config=PLOTLY_CONFIG, key="dash_candle")
+                            
+                    # --- GRÁFICO DE PREÇO (CANDLE VS LINHA) ---
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown("### 📉 Gráfico de Preços do Ativo")
+                    st.write("(Gráficos comparativos de carteira mantêm o padrão em linha para evitar sobreposição visual, enquanto a análise individual de ativos permite alternar o estilo livremente).")
+                    
+                    tipo_grafico_ativo = st.radio("Formato de visualização:", ["Linha", "Candlestick"], horizontal=True)
+                    df_ohlc = yf.download(ativo_fund, start=data_inicio, progress=False, auto_adjust=False)
+                    
+                    if df_ohlc.empty or 'Close' not in df_ohlc:
+                        st.warning("Dados de cotação diária indisponíveis para este ativo no momento.")
+                    else:
+                        if tipo_grafico_ativo == "Candlestick" and 'Open' in df_ohlc:
+                            o = df_ohlc['Open'].squeeze()
+                            h = df_ohlc['High'].squeeze()
+                            l = df_ohlc['Low'].squeeze()
+                            c = df_ohlc['Close'].squeeze()
+                            fig_ativo = go.Figure(data=[go.Candlestick(x=df_ohlc.index, open=o, high=h, low=l, close=c)])
+                        else:
+                            fig_ativo = px.line(x=df_ohlc.index, y=df_ohlc['Close'].squeeze())
+                            fig_ativo.update_traces(line_color='#D4AF37')
+                            
+                        fig_ativo.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)', 
+                            plot_bgcolor='rgba(0,0,0,0)', 
+                            font=dict(color='#D4AF37'),
+                            xaxis_title="Data",
+                            yaxis_title="Cotação / Preço (Moeda Original)",
+                            xaxis_rangeslider_visible=False
+                        )
+                        st.plotly_chart(fig_ativo, use_container_width=True, config=PLOTLY_CONFIG, key="dash_ativo_chart")
 
     tab_idx += 1
     with tabs[tab_idx]: # Gerador de Relatório
-        st.markdown(f"### 📑 Painel de Exportação e Relatório")
+        st.markdown("### 📑 Painel de Exportação e Relatório")
         st.info("Aqui você configura o que deseja imprimir no seu relatório em PDF. Você também pode exportar os gráficos individualmente clicando no ícone de câmera (PNG) que aparece no canto de cada um deles.")
         
         c_rel1, c_rel2 = st.columns(2)
@@ -1192,8 +1202,8 @@ else:
         
         # --- Exportador Individual de Métricas ---
         st.markdown("### 📊 Exportador de Métricas Individuais (Para Slides/PPT)")
-        st.write("Abaixo está a Tabela Plotly das suas métricas globais. Diferente dos textos HTML, você pode passar o mouse nela e clicar no ícone de câmera para baixar o PNG transparente direto para sua apresentação.")
+        st.write("Abaixo está a Tabela Plotly das suas métricas globais. Diferente dos textos HTML padrão, você pode passar o mouse nela e clicar no ícone de câmera para baixar o PNG transparente direto para sua apresentação.")
         fig_export_metr = plot_tabela_metricas(m_prin, nome_cart)
         st.plotly_chart(fig_export_metr, use_container_width=True, config=PLOTLY_CONFIG, key="dash_export_metr")
 
-    st.markdown(f"<div style='text-align:right; color:#D4AF37; opacity:0.6; margin-top: 50px;'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:right; color:#D4AF37; opacity:0.6; margin-top: 50px;'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
