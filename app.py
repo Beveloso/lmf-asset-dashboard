@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import base64
 import re
@@ -69,6 +69,11 @@ def exportar_codigo_carteira(carteira_dict):
             v_copy['data_compra'] = v_copy['data_compra'].strftime('%Y-%m-%d')
         else:
             v_copy['data_compra'] = str(v_copy['data_compra'])
+        if 'data_vencimento' in v_copy:
+            if isinstance(v_copy['data_vencimento'], datetime) or hasattr(v_copy['data_vencimento'], 'strftime'):
+                v_copy['data_vencimento'] = v_copy['data_vencimento'].strftime('%Y-%m-%d')
+            else:
+                v_copy['data_vencimento'] = str(v_copy['data_vencimento'])
         cart_copy[k] = v_copy
     json_str = json.dumps(cart_copy)
     return base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
@@ -79,6 +84,8 @@ def importar_codigo_carteira(codigo_b64):
         cart = json.loads(json_str)
         for k, v in cart.items():
             v['data_compra'] = datetime.strptime(v['data_compra'], '%Y-%m-%d').date()
+            if 'data_vencimento' in v:
+                v['data_vencimento'] = datetime.strptime(v['data_vencimento'], '%Y-%m-%d').date()
         return cart
     except:
         return None
@@ -99,6 +106,18 @@ OPCOES_SETORES = [
 # --- TELA DE "SPLASH SCREEN" (LOGIN / NOVO TRABALHO) ---
 if not st.session_state['started']:
     st.title("🏛️ LMF - ASSET")
+    
+    st.markdown("""
+    <div style="background-color: #1a1a1a; border: 1px solid #D4AF37; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <h4 style="color: #D4AF37; margin-top: 0;">🚀 Update 1.01 (Pós-Apresentação)</h4>
+        <p style="margin-bottom: 0; color: #e0e0e0;">
+        • Volatilidade rolante agora comparada com todos os benchmarks selecionados.<br>
+        • Correção oficial B3 implementada nos cálculos de juros compostos para Renda Fixa.<br>
+        • Nova opção de simulação de Marcação a Mercado para títulos de Renda Fixa.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
     st.markdown("### Bem-vindo ao Sistema de Gestão de Portfólio")
     st.markdown("---")
     
@@ -111,13 +130,14 @@ if not st.session_state['started']:
             st.session_state['started'] = True
             st.session_state['carteira_alterada'] = False
             dt_padrao = datetime(2012, 1, 1).date()
+            dt_venc_padrao = datetime(2030, 1, 1).date()
             st.session_state['carteira'] = {
                 'QQQ': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Tecnologia da Informação'},
                 'JEPI': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Outros'},
                 'PETR4.SA': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Petróleo, Gás e Biocombustíveis'},
                 'IVV': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Outros'},
-                'CDI 100%': {'tipo': 'RF', 'indexador': 'CDI', 'taxa': 1.0, 'aporte': 10.0, 'data_compra': dt_padrao},
-                'IPCA+ 7%': {'tipo': 'RF', 'indexador': 'IPCA+', 'taxa': 0.07, 'aporte': 10.0, 'data_compra': dt_padrao},
+                'CDI 100%': {'tipo': 'RF', 'indexador': 'CDI', 'taxa': 1.0, 'aporte': 10.0, 'data_compra': dt_padrao, 'data_vencimento': dt_venc_padrao},
+                'IPCA+ 7%': {'tipo': 'RF', 'indexador': 'IPCA+', 'taxa': 0.07, 'aporte': 10.0, 'data_compra': dt_padrao, 'data_vencimento': dt_venc_padrao},
                 'VALE3.SA': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Materiais Básicos'},
                 'BBDC4.SA': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Financeiro e Outros'},
                 'BBSE3.SA': {'tipo': 'RV', 'aporte': 10.0, 'data_compra': dt_padrao, 'setor': 'Financeiro e Outros'},
@@ -220,7 +240,40 @@ def calcular_metricas(ret_p, ret_m, cdi_s):
     alpha = ret_p_anual - (rf_anual + beta * (ret_m_anual - rf_anual))
     return ret_acum, vol, sharpe, sortino, dd, var95, beta, alpha
 
-def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, reinvest_flag, setor_filter="Carteira Completa"):
+def calcular_serie_rf(v, cdi_al, ipca_al, idx_m, marcar_mercado):
+    data_c = pd.to_datetime(v['data_compra'])
+    
+    if v['indexador'] == "Prefixado": 
+        r_d = (1 + v['taxa'])**(1/252) - 1
+        rs_serie = pd.Series(r_d, index=idx_m)
+    elif v['indexador'] == "CDI": 
+        r_d = ((1 + cdi_al) ** v['taxa']) - 1 # Correção B3
+        rs_serie = r_d
+    elif v['indexador'] == "IPCA+": 
+        r_d = ((1 + ipca_al) * (1 + v['taxa'])**(1/252)) - 1
+        rs_serie = r_d
+        
+    rs_serie[rs_serie.index < data_c] = 0.0
+    
+    # Simulação Simplificada de Marcação a Mercado (Duration aproximada)
+    if marcar_mercado and 'data_vencimento' in v:
+        dt_venc = pd.to_datetime(v['data_vencimento'])
+        dias_restantes = (dt_venc - rs_serie.index).days
+        dias_restantes = np.maximum(dias_restantes, 0)
+        anos_restantes = dias_restantes / 365.25
+        
+        tx_anual_mercado = (1 + cdi_al)**252 - 1
+        delta_yield = tx_anual_mercado.diff().fillna(0)
+        
+        # Aproximação de Modified Duration: Delta P/P ≈ -Duration * Delta Y / (1+Y)
+        choque_mtm = - (anos_restantes * delta_yield) / (1 + tx_anual_mercado)
+        
+        rs_serie = rs_serie + choque_mtm
+        rs_serie[rs_serie.index < data_c] = 0.0
+        
+    return rs_serie
+
+def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, reinvest_flag, marcar_mercado, setor_filter="Carteira Completa"):
     if setor_filter != "Carteira Completa":
         filtered_dict = {k: v for k, v in dict_carteira.items() if (v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filter}
         dict_carteira = filtered_dict
@@ -243,11 +296,7 @@ def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, 
                 ret_ativos_s[k] = rs
                 tickers_v.append(k)
         elif v['tipo'] == 'RF':
-            if v['indexador'] == "Prefixado": r_d = (1 + v['taxa'])**(1/252) - 1
-            elif v['indexador'] == "CDI": r_d = cdi_al * v['taxa']
-            elif v['indexador'] == "IPCA+": r_d = (1 + ipca_al) * (1 + v['taxa'])**(1/252) - 1
-            rs_serie = pd.Series(r_d, index=idx_m)
-            rs_serie[rs_serie.index < data_c] = 0.0
+            rs_serie = calcular_serie_rf(v, cdi_al, ipca_al, idx_m, marcar_mercado)
             ret_ativos_c[k] = rs_serie
             ret_ativos_s[k] = rs_serie
             tickers_v.append(k)
@@ -263,7 +312,7 @@ def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, 
     ret_sem = (ret_ativos_s[tickers_v] * pesos).sum(axis=1)
     return ret_com, ret_sem
 
-def calcular_retorno_individual(ticker, config, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, reinvest_flag):
+def calcular_retorno_individual(ticker, config, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, reinvest_flag, marcar_mercado):
     data_c = pd.to_datetime(config['data_compra'])
     if config['tipo'] == 'RV':
         df_uso = df_rv_c if reinvest_flag else df_rv_s
@@ -272,12 +321,8 @@ def calcular_retorno_individual(ticker, config, df_rv_c, df_rv_s, cdi_al, ipca_a
             r[r.index < data_c] = 0.0
             return (1 + r).prod() - 1
     elif config['tipo'] == 'RF':
-        if config['indexador'] == "Prefixado": r_d = (1 + config['taxa'])**(1/252) - 1
-        elif config['indexador'] == "CDI": r_d = cdi_al * config['taxa']
-        elif config['indexador'] == "IPCA+": r_d = (1 + ipca_al) * (1 + config['taxa'])**(1/252) - 1
-        r = pd.Series(r_d, index=idx_m)
-        r[r.index < data_c] = 0.0
-        return (1 + r).prod() - 1
+        rs_serie = calcular_serie_rf(config, cdi_al, ipca_al, idx_m, marcar_mercado)
+        return (1 + rs_serie).prod() - 1
     return 0.0
 
 def plot_markowitz(ativos_dict, df_rv_c, df_rv_s, cdi_al, idx_m, reinvestir_flag):
@@ -384,6 +429,7 @@ with st.sidebar:
             cdi_base, ipca_base = cdi_auto, ipca_auto
             
         reinvestir = st.checkbox("Reinvestir Dividendos na Carteira Principal", value=True)
+        marcar_mercado_ativado = st.checkbox("Ativar Marcação a Mercado (Aproximação RF)", value=False)
         
     with st.expander("💾 Salvar Trabalho & Comparar", expanded=False):
         st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**O SEU SAVE:** Copie o código abaixo para salvar o trabalho ou compartilhar.</span>", unsafe_allow_html=True)
@@ -448,11 +494,14 @@ with st.sidebar:
             taxa = taxa_input / 100
             
         aporte_val_rf = c_rf3.number_input("Peso/Valor", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
-        comprado_inicio_rf = st.checkbox("Desde o Início?", value=True, key="chk_rf")
-        data_compra_rf = data_inicio if comprado_inicio_rf else st.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rf")
         
+        c_rf4, c_rf5 = st.columns(2)
+        comprado_inicio_rf = c_rf4.checkbox("Desde o Início?", value=True, key="chk_rf")
+        data_compra_rf = data_inicio if comprado_inicio_rf else c_rf4.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rf")
+        data_vencimento_rf = c_rf5.date_input("Data de Vencimento (Para MTM)", value=datetime(2030,1,1).date(), min_value=datetime.today().date())
+
         if st.button("Inserir Renda Fixa") and nome_rf:
-            st.session_state.carteira[nome_rf] = {'tipo': 'RF', 'indexador': tipo_rf, 'taxa': taxa, 'aporte': aporte_val_rf, 'data_compra': data_compra_rf}
+            st.session_state.carteira[nome_rf] = {'tipo': 'RF', 'indexador': tipo_rf, 'taxa': taxa, 'aporte': aporte_val_rf, 'data_compra': data_compra_rf, 'data_vencimento': data_vencimento_rf}
             st.session_state['carteira_alterada'] = True
             st.rerun()
             
@@ -518,11 +567,11 @@ else:
         nome_bench_principal = benchmarks_sel[0] if benchmarks_sel else "Benchmark Padrão"
         ret_bench_principal = dict_ret_benchs[nome_bench_principal] if benchmarks_sel else pd.Series(0, index=idx_mestre)
 
-        ret_port_com_full, ret_port_sem_full = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir)
+        ret_port_com_full, ret_port_sem_full = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, marcar_mercado_ativado)
         ret_portfolio_principal = ret_port_com_full if reinvestir else ret_port_sem_full
         
         if st.session_state.carteira_comparacao:
-            ret_comp_com_full, ret_comp_sem_full = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp)
+            ret_comp_com_full, ret_comp_sem_full = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, False)
             ret_portfolio_comparacao = ret_comp_com_full if reinvestir_comp else ret_comp_sem_full
 
         aportes_brutos = np.array([v['aporte'] for v in st.session_state.carteira.values()])
@@ -612,13 +661,13 @@ else:
             df_grafico = pd.DataFrame(index=idx_mestre)
             
             if setor_filtro_rent != "Carteira Completa":
-                ret_rent_com_sect, ret_rent_sem_sect = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, setor_filter=setor_filtro_rent)
+                ret_rent_com_sect, ret_rent_sem_sect = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, marcar_mercado_ativado, setor_filter=setor_filtro_rent)
                 ret_rent_sect = ret_rent_com_sect if reinvestir else ret_rent_sem_sect
                 df_grafico[f"Sua Carteira - {setor_filtro_rent} (%)"] = ((1 + ret_rent_sect).cumprod() - 1) * 100
                 color_map = {f"Sua Carteira - {setor_filtro_rent} (%)": "#D4AF37"}
                 
                 if st.session_state.carteira_comparacao:
-                    ret_rent_comp_com_sect, ret_rent_comp_sem_sect = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, setor_filter=setor_filtro_rent)
+                    ret_rent_comp_com_sect, ret_rent_comp_sem_sect = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, False, setor_filter=setor_filtro_rent)
                     ret_rent_comp_sect = ret_rent_comp_com_sect if reinvestir_comp else ret_rent_comp_sem_sect
                     df_grafico[f"Comparação - {setor_filtro_rent} (%)"] = ((1 + ret_rent_comp_sect).cumprod() - 1) * 100
                     color_map[f"Comparação - {setor_filtro_rent} (%)"] = "#00BFFF"
@@ -644,8 +693,8 @@ else:
             html_table = "<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th><th>Saldo Atualizado</th></tr>"
             
             for i, (t, config) in enumerate(st.session_state.carteira.items()):
-                ret_ind_c = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, True)
-                ret_ind_s = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, False)
+                ret_ind_c = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, True, marcar_mercado_ativado)
+                ret_ind_s = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, False, marcar_mercado_ativado)
                 
                 val_inicial = config['aporte'] if modo_aporte == "Por Valor Financeiro (R$)" else capital_inicial * pesos_norm[i]
                 val_final = val_inicial * (1 + (ret_ind_c if reinvestir else ret_ind_s))
@@ -668,7 +717,7 @@ else:
             setor_filtro = c_filtro.selectbox("Filtrar por Setor:", ["Carteira Completa"] + setores_presentes)
             
             if setor_filtro != "Carteira Completa":
-                ret_estudo_com, ret_estudo_sem = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, setor_filter=setor_filtro)
+                ret_estudo_com, ret_estudo_sem = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, marcar_mercado_ativado, setor_filter=setor_filtro)
                 ret_estudo = ret_estudo_com if reinvestir else ret_estudo_sem
                 dict_estudo = {k: v for k, v in st.session_state.carteira.items() if (v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filtro}
             else:
@@ -697,8 +746,12 @@ else:
                 st.plotly_chart(fig_dd, use_container_width=True)
             elif metrica_sel == "Volatilidade Rolante":
                 df_roll[f"{setor_filtro} (%)"] = ret_estudo.rolling(janela).std() * np.sqrt(252) * 100
-                df_roll[f"{nome_bench_principal} (%)"] = ret_bench_principal.rolling(janela).std() * np.sqrt(252) * 100
-                fig_vol = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37", "#555555"])
+                for b_name in benchmarks_sel:
+                    b_serie = dict_ret_benchs.get(b_name)
+                    if b_serie is not None:
+                        df_roll[f"{b_name} (%)"] = b_serie.rolling(janela).std() * np.sqrt(252) * 100
+                
+                fig_vol = px.line(df_roll.dropna())
                 fig_vol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
                 st.plotly_chart(fig_vol, use_container_width=True)
             elif metrica_sel == "Beta (Risco de Mercado)":
@@ -743,7 +796,7 @@ else:
                     bench_periodo = ret_bench_principal.loc[idx_periodo] if not ret_bench_principal.empty else pd.Series(0, index=idx_periodo)
                     
                     for setor in setores_selecionados:
-                        ret_c_sect, ret_s_sect = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, setor_filter=setor)
+                        ret_c_sect, ret_s_sect = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, marcar_mercado_ativado, setor_filter=setor)
                         ret_periodo = (ret_c_sect if reinvestir else ret_s_sect).loc[idx_periodo]
                         retornos_setores[setor] = ret_periodo
                         metricas_setores[setor] = calcular_metricas(ret_periodo, bench_periodo, cdi_periodo)
@@ -793,7 +846,7 @@ else:
                 setor_filtro_comp = c_filt_c.selectbox("Filtrar por Setor (Importada):", ["Carteira Completa"] + setores_presentes_comp)
                 
                 if setor_filtro_comp != "Carteira Completa":
-                    ret_estudo_comp_com, ret_estudo_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, setor_filter=setor_filtro_comp)
+                    ret_estudo_comp_com, ret_estudo_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, False, setor_filter=setor_filtro_comp)
                     ret_estudo_comp = ret_estudo_comp_com if reinvestir_comp else ret_estudo_comp_sem
                     dict_estudo_comp = {k: v for k, v in st.session_state.carteira_comparacao.items() if (v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa') == setor_filtro_comp}
                 else:
@@ -848,8 +901,8 @@ else:
                 
                 html_table_comp = "<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th></tr>"
                 for t, config in st.session_state.carteira_comparacao.items():
-                    ret_ind_c = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, True)
-                    ret_ind_s = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, False)
+                    ret_ind_c = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, True, False)
+                    ret_ind_s = calcular_retorno_individual(t, config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, False, False)
                     
                     color_s = "#4CAF50" if ret_ind_s >= 0 else "#F44336" 
                     color_c = "#4CAF50" if ret_ind_c >= 0 else "#F44336"
