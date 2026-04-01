@@ -60,7 +60,7 @@ def formatar_abrev(valor):
         return f"{val:.2f}"
     except: return "N/A"
 
-def exportar_codigo_carteira(carteira_dict):
+def exportar_codigo_carteira(carteira_dict, nome_carteira):
     if not carteira_dict: return ""
     cart_copy = {}
     for k, v in carteira_dict.items():
@@ -75,20 +75,27 @@ def exportar_codigo_carteira(carteira_dict):
             else:
                 v_copy['data_vencimento'] = str(v_copy['data_vencimento'])
         cart_copy[k] = v_copy
+    
+    cart_copy['__meta_nome__'] = nome_carteira
     json_str = json.dumps(cart_copy)
     return base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
 
 def importar_codigo_carteira(codigo_b64):
     try:
         json_str = base64.b64decode(codigo_b64.encode('utf-8')).decode('utf-8')
-        cart = json.loads(json_str)
-        for k, v in cart.items():
+        cart_bruto = json.loads(json_str)
+        
+        nome_importado = cart_bruto.pop('__meta_nome__', 'Carteira Importada')
+        
+        cart = {}
+        for k, v in cart_bruto.items():
             v['data_compra'] = datetime.strptime(v['data_compra'], '%Y-%m-%d').date()
             if 'data_vencimento' in v:
                 v['data_vencimento'] = datetime.strptime(v['data_vencimento'], '%Y-%m-%d').date()
-        return cart
+            cart[k] = v
+        return cart, nome_importado
     except:
-        return None
+        return None, "Carteira Importada"
 
 # --- INICIALIZAÇÃO DE ESTADOS ---
 if 'started' not in st.session_state:
@@ -96,6 +103,11 @@ if 'started' not in st.session_state:
     st.session_state['carteira_alterada'] = False
     st.session_state['carteira'] = {}
     st.session_state['carteira_comparacao'] = {}
+    
+if 'nome_carteira' not in st.session_state:
+    st.session_state['nome_carteira'] = "Sua Carteira"
+if 'nome_carteira_comparacao' not in st.session_state:
+    st.session_state['nome_carteira_comparacao'] = "Carteira Importada"
 
 OPCOES_SETORES = [
     "Outros", "Consumo Cíclico", "Consumo não Cíclico", "Utilidade Pública",
@@ -113,7 +125,11 @@ if not st.session_state['started']:
         <p style="margin-bottom: 0; color: #e0e0e0;">
         • Volatilidade rolante agora comparada com todos os benchmarks selecionados.<br>
         • Correção oficial B3 implementada nos cálculos de juros compostos para Renda Fixa.<br>
-        • Nova opção de simulação de Marcação a Mercado para títulos de Renda Fixa.
+        • Nova opção de simulação de Marcação a Mercado para títulos de Renda Fixa.<br>
+        • Modificar título da carteira (salvo diretamente no seu código de exportação).
+        </p>
+        <p style="margin-top: 15px; margin-bottom: 0; font-size: 0.9em; color: #D4AF37; opacity: 0.8; font-style: italic;">
+        (Caso tenha ideias ou veja erros, entre em contato)
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -129,6 +145,7 @@ if not st.session_state['started']:
         if st.button("Criar Nova Carteira", use_container_width=True):
             st.session_state['started'] = True
             st.session_state['carteira_alterada'] = False
+            st.session_state['nome_carteira'] = "Minha Carteira"
             dt_padrao = datetime(2012, 1, 1).date()
             dt_venc_padrao = datetime(2030, 1, 1).date()
             st.session_state['carteira'] = {
@@ -151,9 +168,10 @@ if not st.session_state['started']:
         codigo_salvo = st.text_input("Cole seu código de salvamento aqui:")
         if st.button("Carregar Trabalho", use_container_width=True):
             if codigo_salvo:
-                cart_importada = importar_codigo_carteira(codigo_salvo)
+                cart_importada, nome_imp = importar_codigo_carteira(codigo_salvo)
                 if cart_importada:
                     st.session_state['carteira'] = cart_importada
+                    st.session_state['nome_carteira'] = nome_imp
                     st.session_state['started'] = True
                     st.session_state['carteira_alterada'] = True 
                     st.rerun()
@@ -247,7 +265,7 @@ def calcular_serie_rf(v, cdi_al, ipca_al, idx_m, marcar_mercado):
         r_d = (1 + v['taxa'])**(1/252) - 1
         rs_serie = pd.Series(r_d, index=idx_m)
     elif v['indexador'] == "CDI": 
-        r_d = ((1 + cdi_al) ** v['taxa']) - 1 # Correção B3
+        r_d = ((1 + cdi_al) ** v['taxa']) - 1
         rs_serie = r_d
     elif v['indexador'] == "IPCA+": 
         r_d = ((1 + ipca_al) * (1 + v['taxa'])**(1/252)) - 1
@@ -255,7 +273,6 @@ def calcular_serie_rf(v, cdi_al, ipca_al, idx_m, marcar_mercado):
         
     rs_serie[rs_serie.index < data_c] = 0.0
     
-    # Simulação Simplificada de Marcação a Mercado (Duration aproximada)
     if marcar_mercado and 'data_vencimento' in v:
         dt_venc = pd.to_datetime(v['data_vencimento'])
         dias_restantes = (dt_venc - rs_serie.index).days
@@ -265,7 +282,6 @@ def calcular_serie_rf(v, cdi_al, ipca_al, idx_m, marcar_mercado):
         tx_anual_mercado = (1 + cdi_al)**252 - 1
         delta_yield = tx_anual_mercado.diff().fillna(0)
         
-        # Aproximação de Modified Duration: Delta P/P ≈ -Duration * Delta Y / (1+Y)
         choque_mtm = - (anos_restantes * delta_yield) / (1 + tx_anual_mercado)
         
         rs_serie = rs_serie + choque_mtm
@@ -395,6 +411,7 @@ except:
 # --- 3. BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configuração Principal")
+    st.session_state['nome_carteira'] = st.text_input("Nome da sua Carteira:", value=st.session_state.get('nome_carteira', 'Minha Carteira'))
     modo_aporte = st.radio("Método de Alocação", ["Por Peso (%)", "Por Valor Financeiro (R$)"], horizontal=True)
     
     col_cap, col_dt = st.columns(2)
@@ -433,7 +450,7 @@ with st.sidebar:
         
     with st.expander("💾 Salvar Trabalho & Comparar", expanded=False):
         st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**O SEU SAVE:** Copie o código abaixo para salvar o trabalho ou compartilhar.</span>", unsafe_allow_html=True)
-        codigo_export = exportar_codigo_carteira(st.session_state.carteira)
+        codigo_export = exportar_codigo_carteira(st.session_state.carteira, st.session_state.nome_carteira)
         st.code(codigo_export if codigo_export else "Adicione ativos para gerar.")
         
         st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
@@ -441,10 +458,11 @@ with st.sidebar:
         codigo_import = st.text_input("Código de Comparação:")
         reinvestir_comp = st.checkbox("Reinvestir Div. (Carteira Importada)", value=True)
         if st.button("Carregar Comparação", use_container_width=True):
-            cart_importada = importar_codigo_carteira(codigo_import)
+            cart_importada, nome_imp = importar_codigo_carteira(codigo_import)
             if cart_importada:
                 st.session_state.carteira_comparacao = cart_importada
-                st.success("Carteira de comparação carregada!")
+                st.session_state.nome_carteira_comparacao = nome_imp
+                st.success(f"Carteira de comparação '{nome_imp}' carregada!")
                 st.rerun()
             else:
                 st.error("Código inválido.")
@@ -510,6 +528,10 @@ with st.sidebar:
         st.session_state['carteira_alterada'] = True
         st.rerun()
 
+# Nomes padronizados para o painel
+nome_cart = st.session_state.get('nome_carteira', 'Sua Carteira')
+nome_comp = st.session_state.get('nome_carteira_comparacao', 'Carteira Importada')
+
 # --- 4. TELA PRINCIPAL ---
 st.title("🏛️ LMF - ASSET")
 
@@ -522,7 +544,7 @@ if not st.session_state.get('carteira_alterada', False):
     """, unsafe_allow_html=True)
 
 if not st.session_state.carteira:
-    st.info("👋 Sua carteira está vazia. Utilize a barra lateral para adicionar ativos e iniciar as análises de portfólio.")
+    st.info(f"👋 {nome_cart} está vazia. Utilize a barra lateral para adicionar ativos e iniciar as análises de portfólio.")
 else:
     with st.spinner("Sincronizando Mercado Global e Processando Modelagens..."):
         ativos_rv_principal = [k for k, v in st.session_state.carteira.items() if v['tipo'] == 'RV']
@@ -579,7 +601,7 @@ else:
         pesos_norm = aportes_brutos / aportes_brutos.sum() if aportes_brutos.sum() > 0 else aportes_brutos * 0
 
         # --- SEÇÃO 1: COMPOSIÇÃO ---
-        st.header("🛒 Posições e Alocação")
+        st.header(f"🛒 Posições e Alocação ({nome_cart})")
         c_lista, c_grafico = st.columns([1, 1.5])
         with c_lista:
             for i, (t, config) in enumerate(st.session_state.carteira.items()):
@@ -612,7 +634,7 @@ else:
         st.markdown("---")
 
         # --- SEÇÃO 2: MÉTRICAS GLOBAIS ---
-        st.header("📊 Resumo de Desempenho (Carteira Completa)")
+        st.header(f"📊 Resumo de Desempenho ({nome_cart})")
         m_prin = calcular_metricas(ret_portfolio_principal, ret_bench_principal, cdi_aligned)
         
         ret_port_com_acum = (1 + ret_port_com_full).prod() - 1
@@ -663,23 +685,23 @@ else:
             if setor_filtro_rent != "Carteira Completa":
                 ret_rent_com_sect, ret_rent_sem_sect = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir, marcar_mercado_ativado, setor_filter=setor_filtro_rent)
                 ret_rent_sect = ret_rent_com_sect if reinvestir else ret_rent_sem_sect
-                df_grafico[f"Sua Carteira - {setor_filtro_rent} (%)"] = ((1 + ret_rent_sect).cumprod() - 1) * 100
-                color_map = {f"Sua Carteira - {setor_filtro_rent} (%)": "#D4AF37"}
+                df_grafico[f"{nome_cart} - {setor_filtro_rent} (%)"] = ((1 + ret_rent_sect).cumprod() - 1) * 100
+                color_map = {f"{nome_cart} - {setor_filtro_rent} (%)": "#D4AF37"}
                 
                 if st.session_state.carteira_comparacao:
                     ret_rent_comp_com_sect, ret_rent_comp_sem_sect = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, False, setor_filter=setor_filtro_rent)
                     ret_rent_comp_sect = ret_rent_comp_com_sect if reinvestir_comp else ret_rent_comp_sem_sect
-                    df_grafico[f"Comparação - {setor_filtro_rent} (%)"] = ((1 + ret_rent_comp_sect).cumprod() - 1) * 100
-                    color_map[f"Comparação - {setor_filtro_rent} (%)"] = "#00BFFF"
+                    df_grafico[f"{nome_comp} - {setor_filtro_rent} (%)"] = ((1 + ret_rent_comp_sect).cumprod() - 1) * 100
+                    color_map[f"{nome_comp} - {setor_filtro_rent} (%)"] = "#00BFFF"
             else:
-                df_grafico["Sua Carteira (%)"] = ((1 + ret_portfolio_principal).cumprod() - 1) * 100
-                color_map = {"Sua Carteira (%)": "#D4AF37"}
+                df_grafico[f"{nome_cart} (%)"] = ((1 + ret_portfolio_principal).cumprod() - 1) * 100
+                color_map = {f"{nome_cart} (%)": "#D4AF37"}
                 if st.session_state.carteira_comparacao:
-                    df_grafico["Carteira Comparação (%)"] = ((1 + ret_portfolio_comparacao).cumprod() - 1) * 100
-                    color_map["Carteira Comparação (%)"] = "#00BFFF"
+                    df_grafico[f"{nome_comp} (%)"] = ((1 + ret_portfolio_comparacao).cumprod() - 1) * 100
+                    color_map[f"{nome_comp} (%)"] = "#00BFFF"
             
-            for nome_bench, serie_bench in dict_ret_benchs.items():
-                df_grafico[f"{nome_bench} (%)"] = ((1 + serie_bench).cumprod() - 1) * 100
+            for nb, serie_bench in dict_ret_benchs.items():
+                df_grafico[f"{nb} (%)"] = ((1 + serie_bench).cumprod() - 1) * 100
                 
             fig_rent = px.line(df_grafico, color_discrete_map=color_map)
             fig_rent.update_layout(xaxis_title="", yaxis_title="Acumulado (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
@@ -687,7 +709,7 @@ else:
 
         tab_idx += 1
         with tabs[tab_idx]: # Raio-X da Carteira
-            st.markdown("### 🔎 Análise Financeira Individual")
+            st.markdown(f"### 🔎 Análise Financeira Individual ({nome_cart})")
             st.markdown("Confira o capital injetado, o retorno com e sem os dividendos embutidos e o patrimônio exato final de cada ativo na sua carteira.")
             
             html_table = "<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th><th>Saldo Atualizado</th></tr>"
@@ -711,7 +733,7 @@ else:
         tab_idx += 1
         with tabs[tab_idx]: # Estudo das Métricas
             c_estudo, c_filtro = st.columns(2)
-            metrica_sel = c_estudo.selectbox("Selecione o Estudo (Sua Carteira):", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
+            metrica_sel = c_estudo.selectbox(f"Selecione o Estudo ({nome_cart}):", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
             
             setores_presentes = list(set([v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
             setor_filtro = c_filtro.selectbox("Filtrar por Setor:", ["Carteira Completa"] + setores_presentes)
@@ -745,7 +767,7 @@ else:
                 fig_dd.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
                 st.plotly_chart(fig_dd, use_container_width=True)
             elif metrica_sel == "Volatilidade Rolante":
-                df_roll[f"{setor_filtro} (%)"] = ret_estudo.rolling(janela).std() * np.sqrt(252) * 100
+                df_roll[f"{nome_cart} (%)"] = ret_estudo.rolling(janela).std() * np.sqrt(252) * 100
                 for b_name in benchmarks_sel:
                     b_serie = dict_ret_benchs.get(b_name)
                     if b_serie is not None:
@@ -769,7 +791,7 @@ else:
 
         tab_idx += 1
         with tabs[tab_idx]: # Comparação Setorial
-            st.markdown("### 📊 Análise Setorial Personalizada")
+            st.markdown(f"### 📊 Análise Setorial Personalizada ({nome_cart})")
             st.markdown("Filtre janelas de tempo específicas e compare o risco/retorno dos setores presentes na sua carteira.")
             
             c_dates1, c_dates2 = st.columns(2)
@@ -829,7 +851,7 @@ else:
                 
                 st.markdown(f"""
                 <table>
-                    <tr><th>Métrica</th><th>Sua Carteira</th><th>Carteira Importada</th><th>Vencedor</th></tr>
+                    <tr><th>Métrica</th><th>{nome_cart}</th><th>{nome_comp}</th><th>Vencedor</th></tr>
                     <tr><td>Retorno Acumulado</td><td>{r_p}</td><td>{r_c}</td><td>{win_r}</td></tr>
                     <tr><td>Alpha de Jensen</td><td>{a_p}</td><td>{a_c}</td><td>{win_a}</td></tr>
                     <tr><td>Índice Sharpe</td><td>{s_p}</td><td>{s_c}</td><td>{win_s}</td></tr>
@@ -838,9 +860,9 @@ else:
                 </table>
                 """, unsafe_allow_html=True)
                 
-                st.markdown("### 📈 Estudo Profundo (Carteira Importada)")
+                st.markdown(f"### 📈 Estudo Profundo ({nome_comp})")
                 c_est_c, c_filt_c = st.columns(2)
-                est_comp = c_est_c.selectbox("Análise Específica do Colega:", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
+                est_comp = c_est_c.selectbox(f"Análise Específica ({nome_comp}):", ["Fronteira Eficiente (Markowitz)", "Value at Risk (VaR)", "Drawdown Histórico", "Volatilidade Rolante", "Beta (Risco de Mercado)"])
                 
                 setores_presentes_comp = list(set([v.get('setor', 'Outros') if v['tipo'] == 'RV' else 'Renda Fixa' for v in st.session_state.carteira_comparacao.values()]))
                 setor_filtro_comp = c_filt_c.selectbox("Filtrar por Setor (Importada):", ["Carteira Completa"] + setores_presentes_comp)
@@ -860,9 +882,9 @@ else:
                     plot_markowitz(dict_estudo_comp, df_rv_com, df_rv_sem, cdi_aligned, idx_mestre, reinvestir_comp)
                 
                 elif est_comp == "Value at Risk (VaR)":
-                    tipo_var_comp = st.radio("Selecione a visualização do VaR (Importada):", ["Histograma de Retornos (Estático)", "VaR Histórico Rolante"], horizontal=True)
+                    tipo_var_comp = st.radio(f"Selecione a visualização do VaR ({nome_comp}):", ["Histograma de Retornos (Estático)", "VaR Histórico Rolante"], horizontal=True)
                     if tipo_var_comp == "Histograma de Retornos (Estático)":
-                        plot_var_histogram(ret_estudo_comp, f"Distribuição de Retornos (Importada - {setor_filtro_comp})", "#00BFFF")
+                        plot_var_histogram(ret_estudo_comp, f"Distribuição de Retornos ({nome_comp} - {setor_filtro_comp})", "#00BFFF")
                     else:
                         df_roll_comp[f"VaR 5% ({setor_filtro_comp})"] = ret_estudo_comp.rolling(janela).quantile(0.05)
                         fig_var_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF"])
@@ -870,14 +892,14 @@ else:
                         st.plotly_chart(fig_var_c, use_container_width=True)
                 
                 elif est_comp == "Drawdown Histórico":
-                    df_roll_comp[f"Importada ({setor_filtro_comp}) %"] = (((1 + ret_estudo_comp).cumprod() / (1 + ret_estudo_comp).cumprod().cummax()) - 1) * 100
+                    df_roll_comp[f"{nome_comp} ({setor_filtro_comp}) %"] = (((1 + ret_estudo_comp).cumprod() / (1 + ret_estudo_comp).cumprod().cummax()) - 1) * 100
                     fig_dd_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF"])
                     fig_dd_c.update_traces(fill='tozeroy') 
                     fig_dd_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
                     st.plotly_chart(fig_dd_c, use_container_width=True)
                 
                 elif est_comp == "Volatilidade Rolante":
-                    df_roll_comp[f"Importada ({setor_filtro_comp}) %"] = ret_estudo_comp.rolling(janela).std() * np.sqrt(252) * 100
+                    df_roll_comp[f"{nome_comp} ({setor_filtro_comp}) %"] = ret_estudo_comp.rolling(janela).std() * np.sqrt(252) * 100
                     df_roll_comp[f"{nome_bench_principal} (%)"] = ret_bench_principal.rolling(janela).std() * np.sqrt(252) * 100
                     fig_vol_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF", "#555555"])
                     fig_vol_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
@@ -896,7 +918,7 @@ else:
                         fig_beta_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
                         st.plotly_chart(fig_beta_c, use_container_width=True)
                 
-                st.markdown("### 🔎 RX dos Ativos Importados")
+                st.markdown(f"### 🔎 RX dos Ativos ({nome_comp})")
                 st.write(f"Cálculo de Dividendos: **{'Reinvestidos' if reinvestir_comp else 'Não Reinvestidos'}**")
                 
                 html_table_comp = "<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th></tr>"
