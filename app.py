@@ -34,31 +34,63 @@ class AtivoRF:
     data_vencimento: datetime.date = None
     tipo: str = "RF"
 
-# --- 2. CONFIGURAÇÃO VISUAL E EXPORTAÇÃO DE GRÁFICOS ---
-st.set_page_config(page_title="LMF - ASSET", layout="wide")
+# --- 2. MOTOR DINÂMICO DE TEMAS E CORES ---
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    if len(hex_color) == 3:
+        hex_color = ''.join([c*2 for c in hex_color])
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
-st.markdown("""
-    <style>
-    .stApp { background-color: #0b0b0b; color: #e0e0e0; }
-    h1, h2, h3, h4, h5, h6 { color: #D4AF37 !important; }
-    .stButton>button { background-color: #D4AF37; color: #000000; border: None; font-weight: bold; width: 100%; }
-    .stButton>button:hover { background-color: #F1C40F; color: #000000; }
-    div[data-testid="metric-container"] { background-color: #1a1a1a; border: 1px solid #D4AF37; padding: 15px; border-radius: 8px; }
-    hr { border-color: #D4AF37; opacity: 0.3; }
-    table { width: 100%; text-align: center; border-collapse: collapse; margin-bottom: 20px; }
-    th { border-bottom: 2px solid #D4AF37; color: #D4AF37; padding: 10px; }
-    td { border-bottom: 1px solid #333; padding: 10px; }
-    
-    /* Magia Negra do CSS para Impressão: Esconde botões e barras no PDF */
-    @media print {
-        section[data-testid="stSidebar"] { display: none !important; }
-        header[data-testid="stHeader"] { display: none !important; }
-        div[data-testid="stToolbar"] { display: none !important; }
-        .stButton { display: none !important; }
-        .stTabs { display: none !important; }
-    }
-    </style>
-""", unsafe_allow_html=True)
+def get_theme_colors(bg_hex):
+    """Calcula a luminância e gera uma paleta adaptativa para contraste total"""
+    try:
+        r, g, b = hex_to_rgb(bg_hex)
+        # Fórmula padrão de luminância perceptiva
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    except:
+        bg_hex = "#0b0b0b"
+        luminance = 0  # Fallback para escuro se o usuário digitar algo inválido
+
+    is_light = luminance > 0.5
+
+    # A COR DO BOTÃO E DOS HEADERS (Ouro LMF) É FIXA
+    gold_accent = "#D4AF37"
+
+    if is_light:
+        return {
+            "bg": bg_hex,
+            "bg_card": "rgba(0, 0, 0, 0.05)",  # Levemente escurecido para contraste
+            "text_main": "#000000",  # Preto puro para forçar leitura no branco
+            "text_sec": "#333333",
+            "accent": gold_accent,  
+            "accent_comp": "#005C99", # Azul escuro para comparação
+            "grid": "rgba(0, 0, 0, 0.15)",
+            "line_base": "#1a1a1a",
+            "win": "#006400",  # Verde escuro
+            "loss": "#8B0000", # Vermelho escuro
+            "chart_seq": ["#003f5c", "#d45087", "#2f4b7c", "#f95d6a", "#665191", "#ff7c43", "#a05195", "#ffa600"]
+        }
+    else:
+        return {
+            "bg": bg_hex,
+            "bg_card": "rgba(255, 255, 255, 0.05)", # Levemente clareado
+            "text_main": "#ffffff",  # Branco puro para forçar leitura no escuro
+            "text_sec": "#aaaaaa",
+            "accent": gold_accent,  
+            "accent_comp": "#00BFFF", # Azul brilhante para comparação
+            "grid": "rgba(255, 255, 255, 0.1)",
+            "line_base": "#ffffff",
+            "win": "#4CAF50",
+            "loss": "#F44336",
+            "chart_seq": ["#D4AF37", "#00BFFF", "#32CD32", "#FF6347", "#8A2BE2", "#FF69B4", "#00FA9A", "#FF4500"]
+        }
+
+# Inicialização do estado de cor de fundo
+if 'bg_color' not in st.session_state:
+    st.session_state['bg_color'] = "#0b0b0b"
+
+# --- 3. CONFIGURAÇÃO VISUAL E CSS DINÂMICO ---
+st.set_page_config(page_title="LMF - ASSET", layout="wide")
 
 # Configuração de Alta Resolução para Slides (Plotly)
 PLOTLY_CONFIG = {
@@ -193,6 +225,77 @@ OPCOES_SETORES = [
     "Tecnologia da Informação", "Saúde", "Petróleo, Gás e Biocombustíveis", "Comunicações"
 ]
 
+# --- ATUALIZAÇÃO DO TEMA E INJEÇÃO DO CSS DINÂMICO (COM CORREÇÕES AGRESSIVAS) ---
+theme = get_theme_colors(st.session_state['bg_color'])
+
+st.markdown(f"""
+    <style>
+    /* 1. CORREÇÃO GLOBAL DE FUNDO E TEXTO (AGRESSIVA) */
+    .stApp, [data-testid="stSidebar"] {{ 
+        background-color: {theme['bg']} !important; 
+        transition: background-color 0.3s; 
+    }}
+    
+    /* Força a cor principal do texto em qualquer container de markdown padrão */
+    .stApp p, .stApp span, .stApp label, div[data-testid="stMarkdownContainer"] {{ 
+        color: {theme['text_main']} !important; 
+    }}
+    
+    /* Headers com a cor primária de sotaque (Dourado LMF) */
+    h1, h2, h3, h4, h5, h6 {{ color: {theme['accent']} !important; }}
+    
+    /* 2. CORREÇÃO DOS BOTÕES (VOLTANDO A SER AMARELOS) */
+    /* Forcei a cor fixa Ouro LMF independentemente da luminância do fundo */
+    .stButton>button {{ 
+        background-color: #D4AF37 !important; /* COR FIXA AMARELO LMF */
+        color: #000000 !important;          /* TEXTO PRETO PARA CONTRASTE */
+        border: None; font-weight: bold; width: 100%; transition: 0.3s; 
+    }}
+    .stButton>button:hover {{ 
+        background-color: #F1C40F !important; /* AMARELO MAIS BRILHANTE NO HOVER */
+        color: #000000 !important; 
+    }}
+    
+    /* 3. CORREÇÃO DO SIDEBAR (LADO ESQUERDO) - CHEGA DE TEXTOS APAGADOS */
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label {{ 
+        color: {theme['text_main']} !important; /* SEGUE A COR PRINCIPAL (PRETO SE FUNDO BRANCO) */
+        opacity: 1 !important; /* REMOVE QUALQUER DIMMING PADRÃO DO STREAMLIT */
+    }}
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {{ 
+        color: {theme['accent']} !important; 
+    }}
+    
+    /* Container de Métricas Otimizado */
+    div[data-testid="metric-container"] {{ 
+        background-color: {theme['bg_card']} !important; 
+        border: 1px solid {theme['accent']} !important; 
+        padding: 15px; border-radius: 8px; 
+    }}
+    [data-testid="stMetricValue"] {{ color: {theme['text_main']} !important; }}
+    [data-testid="stMetricLabel"] p, [data-testid="stMetricLabel"] span {{ color: {theme['text_sec']} !important; font-weight: bold; }}
+    
+    /* ABAS (Tabs) Legíveis */
+    button[data-baseweb="tab"] p {{ color: {theme['text_sec']} !important; font-size: 1.1em; }}
+    button[data-baseweb="tab"][aria-selected="true"] p {{ color: {theme['accent']} !important; font-weight: bold !important; }}
+    button[data-baseweb="tab"][aria-selected="true"] {{ border-bottom-color: {theme['accent']} !important; }}
+    
+    hr {{ border-color: {theme['accent']} !important; opacity: 0.3; }}
+    table {{ width: 100%; text-align: center; border-collapse: collapse; margin-bottom: 20px; color: {theme['text_main']} !important; }}
+    th {{ border-bottom: 2px solid {theme['accent']}; color: {theme['accent']}; padding: 10px; }}
+    td {{ border-bottom: 1px solid {theme['grid']}; padding: 10px; }}
+    
+    /* Esconder elementos na impressão (PDF) */
+    @media print {{
+        section[data-testid="stSidebar"] {{ display: none !important; }}
+        header[data-testid="stHeader"] {{ display: none !important; }}
+        div[data-testid="stToolbar"] {{ display: none !important; }}
+        .stButton {{ display: none !important; }}
+        .stTabs {{ display: none !important; }}
+    }}
+    </style>
+""", unsafe_allow_html=True)
+
+
 # --- TELA DE "SPLASH SCREEN" (LOGIN / NOVO TRABALHO) ---
 if not st.session_state['started']:
     st.title("🏛️ LMF - ASSET")
@@ -204,18 +307,19 @@ if not st.session_state['started']:
         st.markdown("<br><br>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
-            st.markdown("""
-            <div style="background-color: #1a1a1a; border: 2px solid #D4AF37; padding: 40px; border-radius: 12px; box-shadow: 0px 0px 20px rgba(212, 175, 55, 0.2);">
-                <h1 style="color: #D4AF37; margin-top: 0; text-align: center;">🚀 Update 1.01</h1>
-                <hr style="border-color: #D4AF37; opacity: 0.3;">
-                <p style="color: #e0e0e0; font-size: 1.1em; line-height: 1.8;">
+            st.markdown(f"""
+            <div style="background-color: {theme['bg_card']}; border: 2px solid {theme['accent']}; padding: 40px; border-radius: 12px; box-shadow: 0px 0px 20px {theme['grid']};">
+                <h1 style="color: {theme['accent']}; margin-top: 0; text-align: center;">🚀 Update 1.01</h1>
+                <hr style="border-color: {theme['accent']}; opacity: 0.3;">
+                <p style="color: {theme['text_main']}; font-size: 1.1em; line-height: 1.8;">
                 <b>O que há de novo no sistema:</b><br><br>
                 • Adição de opção para modificação de título da carteira<br>
                 • Melhoria no salvamento de relatório<br>
                 • Melhorias na renda fixa<br>
                 • Melhorias na analise fundamentalista<br>
                 • Melhoria na visualização de gráfico em "candle"<br>
-                • Novas métricas de análise
+                • Novas métricas de análise<br>
+                • <b>NOVO:</b> Escolha de cor de fundo (Hexadecimal) com adaptação automática de gráficos e textos para exportação em slides.
                 </p>
             </div>
             <br>
@@ -271,10 +375,118 @@ if not st.session_state['started']:
             else:
                 st.warning("Por favor, cole um código antes de continuar.")
                 
-    st.markdown(f"<br><br><div style='text-align:center; color:#D4AF37; opacity:0.6'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
+    st.markdown(f"<br><br><div style='text-align:center; color:{theme['accent']}; opacity:0.6'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
     st.stop() 
 
-# --- 2. MOTOR DE DADOS OTIMIZADO E BLINDADO ---
+
+# --- 3. BARRA LATERAL (AGORA FICA ESCONDIDA ATÉ INICIAR) ---
+with st.sidebar:
+    st.header("⚙️ Configuração Principal")
+    st.session_state['nome_carteira'] = st.text_input("Nome da sua Carteira:", value=st.session_state.get('nome_carteira', 'Minha Carteira'))
+    
+    # --- ABA DE ESTILO RECOLHIVEL ---
+    with st.expander("🎨 Estilo e Apresentação (Cor do Fundo)", expanded=False):
+        st.write("Insira a cor do fundo para os gráficos se adaptarem perfeitamente na hora de exportar para PPT/PDF.")
+        st.text_input("Hexadecimal (Ex: #FFFFFF ou #0b0b0b)", key="bg_color")
+    
+    st.markdown("<hr style='margin:10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+    
+    modo_aporte = st.radio("Método de Alocação", ["Por Peso (%)", "Por Valor Financeiro (R$)"], horizontal=True)
+    
+    col_cap, col_dt = st.columns(2)
+    if modo_aporte == "Por Peso (%)":
+        capital_inicial_input = col_cap.number_input("Capital Total (R$)", min_value=100.0, value=10000.0, step=1000.0)
+    else:
+        capital_inicial_input = 0.0 
+        col_cap.text_input("Capital Total (R$)", value="Soma Automática", disabled=True)
+        
+    data_inicio = col_dt.date_input("Data Inicial", value=datetime(2012,1,1), min_value=datetime(1900,1,1), max_value=datetime.today())
+    
+    with st.expander("📊 Parâmetros de Mercado & Benchmarks", expanded=False):
+        opcoes_bench = ["Ibovespa", "IFIX", "S&P 500", "NASDAQ", "SMLL (Small Caps)", "Ouro", "IPCA + Taxa", "CDI (Percentual)", "Selic"]
+        benchmarks_sel = st.multiselect("Selecione os Benchmarks de Comparação:", opcoes_bench, default=["Ibovespa"])
+        
+        taxa_ipca_bench, taxa_cdi_bench = 0.06, 1.0
+        if "IPCA + Taxa" in benchmarks_sel:
+            taxa_ipca_bench = st.number_input("Taxa Fixa do IPCA+ (%)", value=6.0, step=0.1) / 100
+        if "CDI (Percentual)" in benchmarks_sel:
+            taxa_cdi_bench = st.number_input("Percentual do CDI (%)", value=100.0, step=1.0) / 100
+            
+        st.markdown("<hr style='margin:10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
+        taxas_personalizadas = st.checkbox("Deseja taxas personalizadas?")
+        c_taxa1, c_taxa2 = st.columns(2)
+        
+        if taxas_personalizadas:
+            cdi_base = c_taxa1.number_input("CDI Base Global (%)", value=10.5, step=0.1, help="Taxa livre de risco") / 100
+            ipca_base = c_taxa2.number_input("IPCA Base Global (%)", value=4.5, step=0.1, help="Inflação base") / 100
+        else:
+            c_taxa1.number_input("CDI Atual BCB (%)", value=10.5, disabled=True, help="Taxa diária anualizada puxada do Banco Central")
+            c_taxa2.number_input("IPCA Atual BCB (%)", value=4.5, disabled=True, help="Inflação acumulada puxada do Banco Central")
+            
+        reinvestir = st.checkbox("Reinvestir Dividendos na Carteira Principal", value=True)
+        marcar_mercado_ativado = st.checkbox("Ativar Marcação a Mercado (Aproximação RF)", value=False)
+        
+    with st.expander("💾 Salvar Trabalho & Comparar", expanded=False):
+        st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**O SEU SAVE:** Copie o código abaixo.</span>", unsafe_allow_html=True)
+        codigo_export = exportar_codigo_carteira(st.session_state.carteira, st.session_state.nome_carteira)
+        st.code(codigo_export if codigo_export else "Adicione ativos.")
+        
+        st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
+        codigo_import = st.text_input("Código de Comparação:")
+        reinvestir_comp = st.checkbox("Reinvestir Div. (Carteira Importada)", value=True)
+        if st.button("Carregar Comparação", use_container_width=True):
+            cart_importada, nome_imp = importar_codigo_carteira(codigo_import)
+            if cart_importada:
+                st.session_state.carteira_comparacao = cart_importada
+                st.session_state.nome_carteira_comparacao = nome_imp
+                st.success(f"'{nome_imp}' carregada!")
+                st.rerun()
+        if st.session_state.carteira_comparacao:
+            if st.button("Limpar Comparação", use_container_width=True):
+                st.session_state.carteira_comparacao = {}
+                st.rerun()
+    
+    st.markdown("---")
+    st.subheader("➕ Adicionar Ativos")
+    classe_ativo = st.radio("Classe do Ativo", ["Renda Variável", "Renda Fixa"], horizontal=True)
+    
+    if classe_ativo == "Renda Variável":
+        st.warning("⚠️ Ativos listados na B3 exigem o final **.SA**.")
+        c_rv1, c_rv2 = st.columns(2)
+        ticker_add = c_rv1.text_input("Ticker", help="Ex: PETR4.SA").upper().strip()
+        aporte_val = c_rv2.number_input("Peso/Valor", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
+        setor_rv = st.selectbox("Setor do Ativo (Opcional)", OPCOES_SETORES)
+        comprado_inicio_rv = st.checkbox("Desde o Início?", value=True, key="chk_rv")
+        data_compra_rv = data_inicio if comprado_inicio_rv else st.date_input("Comprado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rv")
+        
+        if st.button("Inserir Renda Variável") and ticker_add:
+            if re.match(r'^[A-Z0-9\.\-\=]+$', ticker_add): 
+                st.session_state.carteira[ticker_add] = AtivoRV(ticker=ticker_add, aporte=aporte_val, data_compra=data_compra_rv, setor=setor_rv)
+                st.session_state['carteira_alterada'] = True
+                st.rerun()
+            else: st.error("Ticker inválido.")
+    else:
+        nome_rf = st.text_input("Nome do Título").strip()
+        c_rf1, c_rf2, c_rf3 = st.columns([1.5, 1.5, 1])
+        tipo_rf_add = c_rf1.selectbox("Indexador", ["Prefixado", "CDI", "IPCA+"])
+        taxa_input_add = c_rf2.number_input("Taxa Anual (%)", value=10.0, step=0.1)
+        aporte_val_rf = c_rf3.number_input("Peso/Valor", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
+        c_rf4, c_rf5 = st.columns(2)
+        comprado_inicio_rf = c_rf4.checkbox("Desde o Início?", value=True, key="chk_rf")
+        data_compra_rf = data_inicio if comprado_inicio_rf else c_rf4.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rf")
+        data_vencimento_rf = c_rf5.date_input("Vencimento (MTM)", value=datetime(2030,1,1).date())
+
+        if st.button("Inserir Renda Fixa") and nome_rf:
+            st.session_state.carteira[nome_rf] = AtivoRF(nome=nome_rf, indexador=tipo_rf_add, taxa=taxa_input_add/100, aporte=aporte_val_rf, data_compra=data_compra_rf, data_vencimento=data_vencimento_rf)
+            st.session_state['carteira_alterada'] = True
+            st.rerun()
+            
+    if st.button("🗑️ Limpar Carteira Principal"):
+        st.session_state.carteira = {}
+        st.session_state['carteira_alterada'] = True
+        st.rerun()
+
+# --- MOTOR DE DADOS OTIMIZADO E BLINDADO ---
 @st.cache_data(ttl=600)
 def download_precos_limpos(tickers, start):
     if not tickers: return pd.DataFrame(), pd.DataFrame()
@@ -386,7 +598,7 @@ def calcular_serie_rf(v: AtivoRF, cdi_al, ipca_al, idx_m, marcar_mercado):
 
 def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, reinvest_flag, marcar_mercado, setor_filter="Carteira Completa"):
     if setor_filter != "Carteira Completa":
-        filtered_dict = {k: v for k, v in dict_carteira.items() if (v.setor if v.tipo == 'RV' else 'Renda Fixa') == setor_filter}
+        filtered_dict = {k: v for k, v in dict_carteira.items() if (getattr(v, 'setor', 'Outros') if getattr(v, 'tipo', 'RV') == 'RV' else 'Renda Fixa') == setor_filter}
         dict_carteira = filtered_dict
 
     if not dict_carteira: return pd.Series(0, index=idx_m), pd.Series(0, index=idx_m)
@@ -398,7 +610,7 @@ def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, 
     
     for k, v in dict_carteira.items():
         data_c = pd.to_datetime(v.data_compra)
-        if v.tipo == 'RV':
+        if getattr(v, 'tipo', 'RV') == 'RV':
             if k in df_rv_c.columns:
                 rc = df_rv_c[k].pct_change().fillna(0)
                 rs = df_rv_s[k].pct_change().fillna(0)
@@ -408,7 +620,7 @@ def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, 
                 ret_ativos_s[k] = rs
                 tickers_validos.append(k)
                 aportes_validos.append(v.aporte)
-        elif v.tipo == 'RF':
+        elif getattr(v, 'tipo', 'RV') == 'RF':
             rs_serie = calcular_serie_rf(v, cdi_al, ipca_al, idx_m, marcar_mercado)
             ret_ativos_c[k] = rs_serie
             ret_ativos_s[k] = rs_serie
@@ -428,26 +640,27 @@ def processar_carteira(dict_carteira, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, 
 
 def calcular_retorno_individual(config, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m, reinvest_flag, marcar_mercado):
     data_c = pd.to_datetime(config.data_compra)
-    if config.tipo == 'RV':
+    if getattr(config, 'tipo', 'RV') == 'RV':
         df_uso = df_rv_c if reinvest_flag else df_rv_s
         if config.ticker in df_uso.columns:
             r = df_uso[config.ticker].pct_change().fillna(0)
             r[r.index < data_c] = 0.0
             return (1 + r).prod() - 1
-    elif config.tipo == 'RF':
+    elif getattr(config, 'tipo', 'RV') == 'RF':
         rs_serie = calcular_serie_rf(config, cdi_al, ipca_al, idx_m, marcar_mercado)
         return (1 + rs_serie).prod() - 1
     return 0.0
 
-# === FUNÇÕES DE PLOTAGEM RECUPERADAS ===
+# === FUNÇÕES DE PLOTAGEM ADAPTADAS COM THEME E CONTRAS EIXOS ===
 
-def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m):
-    ativos_rv_validos = [k for k, v in ativos_dict.items() if v.tipo == 'RV']
+def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m, th):
+    ativos_rv_validos = [k for k, v in ativos_dict.items() if getattr(v, 'tipo', 'RV') == 'RV']
     if len(ativos_rv_validos) < 2:
         st.warning("Para simular a Fronteira Eficiente, o recorte precisa ter pelo menos 2 ativos de Renda Variável.")
         return
         
-    with st.spinner("Simulando 2.000 portfólios..."):
+    # --- ALTERAÇÃO AQUI: 5 MIL CARTEIRAS ---
+    with st.spinner("Simulando 5.000 portfólios..."):
         ret_ativos = pd.DataFrame(index=idx_m)
         for t in ativos_rv_validos:
             rc = df_rv_c[t].pct_change().fillna(0)
@@ -457,7 +670,8 @@ def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m):
             
         ret_medios = ret_ativos.mean() * 252
         cov_mat = ret_ativos.cov() * 252
-        num_portfolios = 2000 
+        
+        num_portfolios = 5000 
         
         np.random.seed(42)
         todos_pesos = np.random.random((num_portfolios, len(ativos_rv_validos)))
@@ -474,26 +688,30 @@ def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m):
         
         fig = px.scatter(df_ef, x='Volatilidade', y='Retorno', color='Sharpe', color_continuous_scale='Viridis', opacity=0.8)
         fig.add_trace(go.Scatter(x=[p_max['Volatilidade']], y=[p_max['Retorno']], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='Máximo Sharpe'))
-        fig.update_layout(xaxis_title="Volatilidade Anual", yaxis_title="Retorno Anual", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+        fig.update_layout(xaxis_title="Volatilidade Anual", yaxis_title="Retorno Anual", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=th['text_main']))
+        fig.update_xaxes(gridcolor=th['grid'], tickfont=dict(color=th['text_sec']), title_font=dict(color=th['text_main']))
+        fig.update_yaxes(gridcolor=th['grid'], tickfont=dict(color=th['text_sec']), title_font=dict(color=th['text_main']))
         st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
-def plot_var_histogram(ret_port, title="Distribuição de Retornos Diários", line_color="red"):
+def plot_var_histogram(ret_port, title, line_color, th):
     ret_valido = ret_port.dropna()
     if len(ret_valido) == 0:
         st.warning("Dados insuficientes para plotar o VaR.")
         return
     var_5 = np.percentile(ret_valido, 5)
-    fig = px.histogram(ret_valido, nbins=50, title=title)
+    fig = px.histogram(ret_valido, nbins=50, title=title, color_discrete_sequence=[th['accent']])
     fig.add_vline(x=var_5, line_dash="dash", line_color=line_color, annotation_text=f"VaR 5% = {var_5:.4f}")
-    fig.update_layout(xaxis_title="Retorno Diário", yaxis_title="Densidade", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+    fig.update_layout(xaxis_title="Retorno Diário", yaxis_title="Densidade", showlegend=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=th['text_main']))
+    fig.update_xaxes(gridcolor=th['grid'], tickfont=dict(color=th['text_sec']), title_font=dict(color=th['text_main']))
+    fig.update_yaxes(gridcolor=th['grid'], tickfont=dict(color=th['text_sec']), title_font=dict(color=th['text_main']))
     st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
-def plot_correlation_matrix(ativos_dict, df_rv_c, idx_m, setor_filter):
+def plot_correlation_matrix(ativos_dict, df_rv_c, idx_m, setor_filter, th):
     dict_uso = ativos_dict
     if setor_filter != "Carteira Completa":
-        dict_uso = {k: v for k, v in ativos_dict.items() if (v.setor if v.tipo == 'RV' else 'Renda Fixa') == setor_filter}
+        dict_uso = {k: v for k, v in ativos_dict.items() if (getattr(v, 'setor', 'Outros') if getattr(v, 'tipo', 'RV') == 'RV' else 'Renda Fixa') == setor_filter}
 
-    ativos_rv = [k for k, v in dict_uso.items() if v.tipo == 'RV']
+    ativos_rv = [k for k, v in dict_uso.items() if getattr(v, 'tipo', 'RV') == 'RV']
     
     if len(ativos_rv) < 2:
         st.warning(f"Selecione pelo menos 2 ativos de Renda Variável no setor '{setor_filter}' para gerar a correlação.")
@@ -515,10 +733,12 @@ def plot_correlation_matrix(ativos_dict, df_rv_c, idx_m, setor_filter):
                         color_continuous_scale="RdBu_r", 
                         zmin=-1, zmax=1,
                         title=f"Matriz de Correlação - {setor_filter}")
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=th['text_main']))
+        fig.update_xaxes(tickfont=dict(color=th['text_main']))
+        fig.update_yaxes(tickfont=dict(color=th['text_main']))
         st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
-def plot_monte_carlo(ret_portfolio, capital_inicial):
+def plot_monte_carlo(ret_portfolio, capital_inicial, th):
     if ret_portfolio.empty or ret_portfolio.std() == 0:
         st.warning("Dados insuficientes ou portfólio sem volatilidade (apenas RF fixa) para simulação de Monte Carlo.")
         return
@@ -544,24 +764,24 @@ def plot_monte_carlo(ret_portfolio, capital_inicial):
         eixo_x = np.arange(dias_projetados + 1)
         for i in range(min(num_simulacoes, 500)): 
             fig.add_trace(go.Scatter(x=eixo_x, y=caminhos_capital[:, i], 
-                                     mode='lines', line=dict(width=1), opacity=0.2, 
+                                     mode='lines', line=dict(width=1), opacity=0.15, 
                                      showlegend=False, hoverinfo='skip'))
 
         fig.add_trace(go.Scatter(x=[0, dias_projetados], y=[capital_inicial, capital_inicial],
-                                 mode='lines', line=dict(color='white', width=3), name='Initial'))
+                                 mode='lines', line=dict(color=th['line_base'], width=3), name='Initial'))
 
         fig.add_trace(go.Scatter(x=[0, dias_projetados], y=[var_1_mc_rs, var_1_mc_rs],
-                                 mode='lines', line=dict(color='#ff4b4b', width=3, dash='dash'), 
+                                 mode='lines', line=dict(color=th['loss'], width=3, dash='dash'), 
                                  name=f'VaR 1% MC ({formatar_moeda(var_1_mc_rs)})'))
 
         fig.update_layout(title=f"Simulação de Monte Carlo - Capital Evolution (Projeção 1 Ano)<br>VaR 1% MC: {formatar_moeda(var_1_mc_rs)}",
                           xaxis_title="Days", yaxis_title="Capital Evolution",
                           paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                          font=dict(color='#D4AF37'),
-                          legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor='rgba(26,26,26,0.8)'))
+                          font=dict(color=th['text_main']),
+                          legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, font=dict(color=th['text_main'])))
                           
-        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(212, 175, 55, 0.15)') 
-        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(212, 175, 55, 0.15)')
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=th['grid'], tickfont=dict(color=th['text_sec']), title_font=dict(color=th['text_main']))
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=th['grid'], tickfont=dict(color=th['text_sec']), title_font=dict(color=th['text_main']))
         
         st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
@@ -573,161 +793,26 @@ def compara_metrica(val_p, val_c, is_higher_better=True, is_pct=True):
     if win: return f"⭐ {vp_str}", vc_str, "Principal"
     else: return vp_str, f"⭐ {vc_str}", "Comparada"
 
-def plot_tabela_metricas(m_prin, nome_cart):
+def plot_tabela_metricas(m_prin, nome_cart, th):
     fig = go.Figure(data=[go.Table(
         header=dict(values=['Métrica', nome_cart],
-                    fill_color='#1a1a1a',
-                    font=dict(color='#D4AF37', size=16, family='Arial'),
+                    fill_color=th['bg_card'],
+                    font=dict(color=th['accent'], size=16, family='Arial'),
                     align='center',
                     height=40),
         cells=dict(values=[
             ['Rentabilidade Acumulada', 'Índice Sharpe', 'Índice Sortino', 'Volatilidade Anual', 'Max Drawdown', 'Alpha de Jensen', 'Beta vs Bench.'],
             [f"{m_prin[0]:.2%}", f"{m_prin[2]:.2f}", f"{m_prin[3]:.2f}", f"{m_prin[1]:.2%}", f"{m_prin[4]:.2%}", f"{m_prin[7]:.2%}", f"{m_prin[6]:.2f}"]
         ],
-        fill_color='#0b0b0b',
-        font=dict(color='#e0e0e0', size=15, family='Arial'),
+        fill_color=th['bg'],
+        line_color=th['grid'],
+        font=dict(color=th['text_main'], size=15, family='Arial'),
         align='center',
         height=35))
     ])
     fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor='rgba(0,0,0,0)', height=300)
     return fig
 
-def garantir_dataclasses_state():
-    if st.session_state.carteira:
-        nova_carteira = {}
-        alterou = False
-        for k, v in st.session_state.carteira.items():
-            if isinstance(v, dict):
-                alterou = True
-                dt_compra = datetime.strptime(v['data_compra'], '%Y-%m-%d').date() if isinstance(v['data_compra'], str) else v['data_compra']
-                if v['tipo'] == 'RV':
-                    nova_carteira[k] = AtivoRV(ticker=v.get('ticker', k), aporte=v['aporte'], data_compra=dt_compra, setor=v['setor'])
-                else:
-                    dt_venc = None
-                    if v.get('data_vencimento'):
-                        dt_venc = datetime.strptime(v['data_vencimento'], '%Y-%m-%d').date() if isinstance(v['data_vencimento'], str) else v['data_vencimento']
-                    nova_carteira[k] = AtivoRF(nome=v.get('nome', k), indexador=v['indexador'], taxa=v['taxa'], aporte=v['aporte'], data_compra=dt_compra, data_vencimento=dt_venc)
-            else:
-                nova_carteira[k] = v
-        if alterou:
-            st.session_state.carteira = nova_carteira
-            st.session_state['carteira_alterada'] = True
-
-def garantir_dataclasses_state_comparacao():
-    if st.session_state.carteira_comparacao:
-        nova_carteira = {}
-        for k, v in st.session_state.carteira_comparacao.items():
-            if isinstance(v, dict):
-                dt_compra = datetime.strptime(v['data_compra'], '%Y-%m-%d').date() if isinstance(v['data_compra'], str) else v['data_compra']
-                if v['tipo'] == 'RV':
-                    nova_carteira[k] = AtivoRV(ticker=v.get('ticker', k), aporte=v['aporte'], data_compra=dt_compra, setor=v['setor'])
-                else:
-                    dt_venc = None
-                    if v.get('data_vencimento'):
-                        dt_venc = datetime.strptime(v['data_vencimento'], '%Y-%m-%d').date() if isinstance(v['data_vencimento'], str) else v['data_vencimento']
-                    nova_carteira[k] = AtivoRF(nome=v.get('nome', k), indexador=v['indexador'], taxa=v['taxa'], aporte=v['aporte'], data_compra=dt_compra, data_vencimento=dt_venc)
-            else:
-                nova_carteira[k] = v
-        st.session_state.carteira_comparacao = nova_carteira
-
-# --- 3. BARRA LATERAL ---
-with st.sidebar:
-    st.header("⚙️ Configuração Principal")
-    st.session_state['nome_carteira'] = st.text_input("Nome da sua Carteira:", value=st.session_state.get('nome_carteira', 'Minha Carteira'))
-    modo_aporte = st.radio("Método de Alocação", ["Por Peso (%)", "Por Valor Financeiro (R$)"], horizontal=True)
-    
-    col_cap, col_dt = st.columns(2)
-    if modo_aporte == "Por Peso (%)":
-        capital_inicial_input = col_cap.number_input("Capital Total (R$)", min_value=100.0, value=10000.0, step=1000.0)
-    else:
-        capital_inicial_input = 0.0 
-        col_cap.text_input("Capital Total (R$)", value="Soma Automática", disabled=True)
-        
-    data_inicio = col_dt.date_input("Data Inicial", value=datetime(2012,1,1), min_value=datetime(1900,1,1), max_value=datetime.today())
-    
-    with st.expander("📊 Parâmetros de Mercado & Benchmarks", expanded=False):
-        opcoes_bench = ["Ibovespa", "IFIX", "S&P 500", "NASDAQ", "SMLL (Small Caps)", "Ouro", "IPCA + Taxa", "CDI (Percentual)", "Selic"]
-        benchmarks_sel = st.multiselect("Selecione os Benchmarks de Comparação:", opcoes_bench, default=["Ibovespa"])
-        
-        taxa_ipca_bench, taxa_cdi_bench = 0.06, 1.0
-        if "IPCA + Taxa" in benchmarks_sel:
-            taxa_ipca_bench = st.number_input("Taxa Fixa do IPCA+ (%)", value=6.0, step=0.1) / 100
-        if "CDI (Percentual)" in benchmarks_sel:
-            taxa_cdi_bench = st.number_input("Percentual do CDI (%)", value=100.0, step=1.0) / 100
-            
-        st.markdown("<hr style='margin:10px 0; opacity: 0.3;'>", unsafe_allow_html=True)
-        taxas_personalizadas = st.checkbox("Deseja taxas personalizadas?")
-        c_taxa1, c_taxa2 = st.columns(2)
-        
-        if taxas_personalizadas:
-            cdi_base = c_taxa1.number_input("CDI Base Global (%)", value=10.5, step=0.1, help="Taxa livre de risco") / 100
-            ipca_base = c_taxa2.number_input("IPCA Base Global (%)", value=4.5, step=0.1, help="Inflação base") / 100
-        else:
-            c_taxa1.number_input("CDI Atual BCB (%)", value=10.5, disabled=True, help="Taxa diária anualizada puxada do Banco Central")
-            c_taxa2.number_input("IPCA Atual BCB (%)", value=4.5, disabled=True, help="Inflação acumulada puxada do Banco Central")
-            
-        reinvestir = st.checkbox("Reinvestir Dividendos na Carteira Principal", value=True)
-        marcar_mercado_ativado = st.checkbox("Ativar Marcação a Mercado (Aproximação RF)", value=False)
-        
-    with st.expander("💾 Salvar Trabalho & Comparar", expanded=False):
-        st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**O SEU SAVE:** Copie o código abaixo.</span>", unsafe_allow_html=True)
-        codigo_export = exportar_codigo_carteira(st.session_state.carteira, st.session_state.nome_carteira)
-        st.code(codigo_export if codigo_export else "Adicione ativos.")
-        
-        st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
-        codigo_import = st.text_input("Código de Comparação:")
-        reinvestir_comp = st.checkbox("Reinvestir Div. (Carteira Importada)", value=True)
-        if st.button("Carregar Comparação", use_container_width=True):
-            cart_importada, nome_imp = importar_codigo_carteira(codigo_import)
-            if cart_importada:
-                st.session_state.carteira_comparacao = cart_importada
-                st.session_state.nome_carteira_comparacao = nome_imp
-                st.success(f"'{nome_imp}' carregada!")
-                st.rerun()
-        if st.session_state.carteira_comparacao:
-            if st.button("Limpar Comparação", use_container_width=True):
-                st.session_state.carteira_comparacao = {}
-                st.rerun()
-    
-    st.markdown("---")
-    st.subheader("➕ Adicionar Ativos")
-    classe_ativo = st.radio("Classe do Ativo", ["Renda Variável", "Renda Fixa"], horizontal=True)
-    
-    if classe_ativo == "Renda Variável":
-        st.warning("⚠️ Ativos listados na B3 exigem o final **.SA**.")
-        c_rv1, c_rv2 = st.columns(2)
-        ticker_add = c_rv1.text_input("Ticker", help="Ex: PETR4.SA").upper().strip()
-        aporte_val = c_rv2.number_input("Peso/Valor", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
-        setor_rv = st.selectbox("Setor do Ativo (Opcional)", OPCOES_SETORES)
-        comprado_inicio_rv = st.checkbox("Desde o Início?", value=True, key="chk_rv")
-        data_compra_rv = data_inicio if comprado_inicio_rv else st.date_input("Comprado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rv")
-        
-        if st.button("Inserir Renda Variável") and ticker_add:
-            if re.match(r'^[A-Z0-9\.\-\=]+$', ticker_add): 
-                st.session_state.carteira[ticker_add] = AtivoRV(ticker=ticker_add, aporte=aporte_val, data_compra=data_compra_rv, setor=setor_rv)
-                st.session_state['carteira_alterada'] = True
-                st.rerun()
-            else: st.error("Ticker inválido.")
-    else:
-        nome_rf = st.text_input("Nome do Título").strip()
-        c_rf1, c_rf2, c_rf3 = st.columns([1.5, 1.5, 1])
-        tipo_rf_add = c_rf1.selectbox("Indexador", ["Prefixado", "CDI", "IPCA+"])
-        taxa_input_add = c_rf2.number_input("Taxa Anual (%)", value=10.0, step=0.1)
-        aporte_val_rf = c_rf3.number_input("Peso/Valor", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
-        c_rf4, c_rf5 = st.columns(2)
-        comprado_inicio_rf = c_rf4.checkbox("Desde o Início?", value=True, key="chk_rf")
-        data_compra_rf = data_inicio if comprado_inicio_rf else c_rf4.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today(), key="dt_rf")
-        data_vencimento_rf = c_rf5.date_input("Vencimento (MTM)", value=datetime(2030,1,1).date())
-
-        if st.button("Inserir Renda Fixa") and nome_rf:
-            st.session_state.carteira[nome_rf] = AtivoRF(nome=nome_rf, indexador=tipo_rf_add, taxa=taxa_input_add/100, aporte=aporte_val_rf, data_compra=data_compra_rf, data_vencimento=data_vencimento_rf)
-            st.session_state['carteira_alterada'] = True
-            st.rerun()
-            
-    if st.button("🗑️ Limpar Carteira Principal"):
-        st.session_state.carteira = {}
-        st.session_state['carteira_alterada'] = True
-        st.rerun()
 
 nome_cart = st.session_state.get('nome_carteira', 'Minha Carteira')
 nome_comp = st.session_state.get('nome_carteira_comparacao', 'Carteira Importada')
@@ -737,8 +822,6 @@ if not st.session_state.carteira:
     st.stop()
 
 # --- MOTOR PRINCIPAL ---
-garantir_dataclasses_state()
-
 ativos_rv_principal = [k for k, v in st.session_state.carteira.items() if getattr(v, 'tipo', 'RV') == 'RV']
 ativos_rv_comp = [k for k, v in st.session_state.carteira_comparacao.items() if getattr(v, 'tipo', 'RV') == 'RV']
     
@@ -785,7 +868,6 @@ ret_port_com_full, ret_port_sem_full = processar_carteira(st.session_state.carte
 ret_portfolio_principal = ret_port_com_full if reinvestir else ret_port_sem_full
 
 if st.session_state.carteira_comparacao:
-    garantir_dataclasses_state_comparacao()
     ret_comp_com_full, ret_comp_sem_full = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, reinvestir_comp, False)
     ret_portfolio_comparacao = ret_comp_com_full if reinvestir_comp else ret_comp_sem_full
 
@@ -795,41 +877,43 @@ pesos_norm = aportes_brutos / aportes_brutos.sum() if aportes_brutos.sum() > 0 e
 m_prin = calcular_metricas(ret_portfolio_principal, ret_bench_principal, cdi_aligned)
 
 df_pizza = pd.DataFrame({'Ativo': list(st.session_state.carteira.keys()), 'Peso': pesos_norm})
-fig_pizza_base = px.pie(df_pizza, values='Peso', names='Ativo', hole=0.5)
-fig_pizza_base.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), margin=dict(t=0, b=0, l=0, r=0))
+fig_pizza_base = px.pie(df_pizza, values='Peso', names='Ativo', hole=0.5, color_discrete_sequence=theme['chart_seq'])
+fig_pizza_base.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), margin=dict(t=0, b=0, l=0, r=0))
 
-html_table_rx = "<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th><th>Saldo Atualizado</th></tr>"
+html_table_rx = f"<table><tr><th>Ativo</th><th>Classe</th><th>Setor</th><th>Capital Alocado</th><th>Retorno (Sem Div)</th><th>Retorno (Com Div)</th><th>Saldo Atualizado</th></tr>"
 for i, (t, config) in enumerate(st.session_state.carteira.items()):
     ret_ind_c = calcular_retorno_individual(config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, True, marcar_mercado_ativado)
     ret_ind_s = calcular_retorno_individual(config, df_rv_com, df_rv_sem, cdi_aligned, ipca_daily_aligned, idx_mestre, False, marcar_mercado_ativado)
     
     val_inicial = getattr(config, 'aporte', 0) if modo_aporte == "Por Valor Financeiro (R$)" else capital_inicial * pesos_norm[i]
     val_final = val_inicial * (1 + (ret_ind_c if reinvestir else ret_ind_s))
-    color_s = "#4CAF50" if ret_ind_s >= 0 else "#F44336" 
-    color_c = "#4CAF50" if ret_ind_c >= 0 else "#F44336"
+    color_s = theme['win'] if ret_ind_s >= 0 else theme['loss']
+    color_c = theme['win'] if ret_ind_c >= 0 else theme['loss']
     setor_rx = getattr(config, 'setor', 'Outros') if getattr(config, 'tipo', 'RV') == 'RV' else 'Renda Fixa'
     html_table_rx += f"<tr><td><b>{t}</b></td><td>{getattr(config, 'tipo', 'RV')}</td><td>{setor_rx}</td><td>{formatar_moeda(val_inicial)}</td><td style='color:{color_s}'><b>{formatar_percentual(ret_ind_s)}</b></td><td style='color:{color_c}'><b>{formatar_percentual(ret_ind_c)}</b></td><td><b>{formatar_moeda(val_final)}</b></td></tr>"
 html_table_rx += "</table>"
 
 df_grafico_rentabilidade = pd.DataFrame(index=idx_mestre)
 df_grafico_rentabilidade[f"{nome_cart} (%)"] = ((1 + ret_portfolio_principal).cumprod() - 1) * 100
-color_map_rent = {f"{nome_cart} (%)": "#D4AF37"}
+color_map_rent = {f"{nome_cart} (%)": theme['accent']}
 
 if st.session_state.carteira_comparacao:
     df_grafico_rentabilidade[f"{nome_comp} (%)"] = ((1 + ret_portfolio_comparacao).cumprod() - 1) * 100
-    color_map_rent[f"{nome_comp} (%)"] = "#00BFFF"
+    color_map_rent[f"{nome_comp} (%)"] = theme['accent_comp']
     
 for nb, serie_bench in dict_ret_benchs.items():
     df_grafico_rentabilidade[f"{nb} (%)"] = ((1 + serie_bench).cumprod() - 1) * 100
     
 fig_rent_global_memoria = px.line(df_grafico_rentabilidade, color_discrete_map=color_map_rent)
-fig_rent_global_memoria.update_layout(xaxis_title="", yaxis_title="Acumulado (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+fig_rent_global_memoria.update_layout(xaxis_title="", yaxis_title="Acumulado (%)", xaxis=dict(tickformat="%b %Y", dtick="M3"), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+fig_rent_global_memoria.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+fig_rent_global_memoria.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
 
 # --- 5. RENDERIZAÇÃO: MODO IMPRESSÃO LIMPA VS MODO DASHBOARD NORMAL ---
 if st.session_state.get('modo_impressao', False):
     st.button("⬅️ VOLTAR AO DASHBOARD NORMAL", on_click=desativar_modo_impressao)
-    st.markdown(f"<h1 style='text-align: center; color: #D4AF37; font-size: 3em;'>{nome_cart}</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center; color: #e0e0e0; margin-top: -15px;'>Relatório de Desempenho | Powered by LMF - ASSET</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; color: {theme['accent']}; font-size: 3em;'>{nome_cart}</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='text-align: center; color: {theme['text_sec']}; margin-top: -15px;'>Relatório de Desempenho | Powered by LMF - ASSET</h3>", unsafe_allow_html=True)
     st.markdown("---")
     
     if st.session_state.get('rel_comp', True):
@@ -839,7 +923,7 @@ if st.session_state.get('modo_impressao', False):
         
     if st.session_state.get('rel_metr', True):
         st.subheader("2. Quadro de Métricas de Risco/Retorno")
-        fig_tbl_met = plot_tabela_metricas(m_prin, nome_cart)
+        fig_tbl_met = plot_tabela_metricas(m_prin, nome_cart, theme)
         st.plotly_chart(fig_tbl_met, use_container_width=True, config=PLOTLY_CONFIG, key="tbl_print")
         st.write("")
         
@@ -865,8 +949,8 @@ if st.session_state.get('modo_impressao', False):
 # ======================== MODO DASHBOARD NORMAL ===============================
 # ==============================================================================
 
-st.markdown(f"<h1 style='color: #D4AF37; font-size: 3rem; margin-bottom: -15px;'>🏛️ {nome_cart}</h1>", unsafe_allow_html=True)
-st.markdown("<h4 style='color: #e0e0e0; margin-bottom: 30px; opacity: 0.8;'>Portfólio Management System | LMF ASSET</h4>", unsafe_allow_html=True)
+st.markdown(f"<h1 style='color: {theme['accent']}; font-size: 3rem; margin-bottom: -15px;'>🏛️ {nome_cart}</h1>", unsafe_allow_html=True)
+st.markdown(f"<h4 style='color: {theme['text_sec']}; margin-bottom: 30px; opacity: 0.8;'>Portfólio Management System | LMF ASSET</h4>", unsafe_allow_html=True)
 
 # --- RESUMO GLOBAL ---
 st.header("📊 Resumo de Desempenho")
@@ -875,7 +959,6 @@ ret_port_sem_acum = (1 + ret_port_sem_full).prod() - 1
 patrimonio_final = capital_inicial * (1 + m_prin[0])
 lucro_rs = capital_inicial * m_prin[0]
 
-# Restauração do Layout de 8 métricas divididas nas linhas corretas
 cm1, cm2, cm3 = st.columns(3)
 cm1.metric("Capital Inicial Alocado", formatar_moeda(capital_inicial))
 cm2.metric("Patrimônio Atualizado (R$)", formatar_moeda(patrimonio_final), formatar_moeda(lucro_rs))
@@ -926,8 +1009,8 @@ with tabs[0]:
             setores_lista = [getattr(v, 'setor', 'Outros') if getattr(v, 'tipo', 'RV') == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]
             df_pizza_sec = pd.DataFrame({'Setor': setores_lista, 'Peso': pesos_norm})
             df_pizza_sec = df_pizza_sec.groupby('Setor', as_index=False).sum()
-            fig_pizza_sec = px.pie(df_pizza_sec, values='Peso', names='Setor', hole=0.5)
-            fig_pizza_sec.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), margin=dict(t=0, b=0, l=0, r=0))
+            fig_pizza_sec = px.pie(df_pizza_sec, values='Peso', names='Setor', hole=0.5, color_discrete_sequence=theme['chart_seq'])
+            fig_pizza_sec.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), margin=dict(t=0, b=0, l=0, r=0))
             st.plotly_chart(fig_pizza_sec, use_container_width=True, config=PLOTLY_CONFIG, key="dash_pizza_setor")
         
     st.markdown("### 📈 Evolução de Rentabilidade")
@@ -971,25 +1054,27 @@ with tabs[2]:
 
     if metrica_sel == "Matriz de Correlação":
         st.divider()
-        plot_correlation_matrix(st.session_state.carteira, df_rv_com, idx_mestre, setor_filtro)
+        plot_correlation_matrix(st.session_state.carteira, df_rv_com, idx_mestre, setor_filtro, theme)
         
     elif metrica_sel == "Simulação de Monte Carlo":
         st.divider()
-        plot_monte_carlo(ret_estudo, capital_inicial)
+        plot_monte_carlo(ret_estudo, capital_inicial, theme)
         
     elif metrica_sel == "Fronteira Eficiente (Markowitz)":
         st.divider()
-        plot_markowitz(dict_estudo, df_rv_com, cdi_aligned, idx_mestre)
+        plot_markowitz(dict_estudo, df_rv_com, cdi_aligned, idx_mestre, theme)
         
     elif metrica_sel == "Value at Risk (VaR Histórico)":
         st.divider()
         tipo_var = st.radio("Selecione a visualização do VaR:", ["Histograma de Retornos (Estático)", "VaR Histórico Rolante"], horizontal=True)
         if tipo_var == "Histograma de Retornos (Estático)":
-            plot_var_histogram(ret_estudo, f"Distribuição de Retornos ({setor_filtro})")
+            plot_var_histogram(ret_estudo, f"Distribuição de Retornos ({setor_filtro})", theme['loss'], theme)
         else:
             df_roll[f"VaR 5% ({setor_filtro})"] = ret_estudo.rolling(janela).quantile(0.05)
-            fig_var = px.line(df_roll.dropna(), color_discrete_sequence=["#D4AF37"])
-            fig_var.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+            fig_var = px.line(df_roll.dropna(), color_discrete_sequence=[theme['accent']])
+            fig_var.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+            fig_var.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+            fig_var.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
             st.plotly_chart(fig_var, use_container_width=True, config=PLOTLY_CONFIG, key="dash_var_roll")
             
     elif metrica_sel == "Drawdown Histórico":
@@ -997,8 +1082,10 @@ with tabs[2]:
         cum = (1 + ret_estudo).cumprod()
         dd = ((cum / cum.cummax() - 1) * 100)
         fig_dd = px.area(dd, title=f"Drawdown Histórico (%) - {setor_filtro}")
-        fig_dd.update_traces(line_color='#ff4b4b', fillcolor='rgba(255, 75, 75, 0.2)')
-        fig_dd.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+        fig_dd.update_traces(line_color=theme['loss'], fillcolor=theme['loss'], opacity=0.2)
+        fig_dd.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+        fig_dd.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+        fig_dd.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
         st.plotly_chart(fig_dd, use_container_width=True, config=PLOTLY_CONFIG)
         
     elif metrica_sel == "Volatilidade Rolante":
@@ -1008,8 +1095,10 @@ with tabs[2]:
             b_serie = dict_ret_benchs.get(b_name)
             if b_serie is not None:
                 df_roll[f"{b_name} (%)"] = b_serie.rolling(janela).std() * np.sqrt(252) * 100
-        fig_vol = px.line(df_roll.dropna())
-        fig_vol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+        fig_vol = px.line(df_roll.dropna(), color_discrete_sequence=theme['chart_seq'])
+        fig_vol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+        fig_vol.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+        fig_vol.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
         st.plotly_chart(fig_vol, use_container_width=True, config=PLOTLY_CONFIG, key="dash_vol_roll")
         
     elif metrica_sel == "Beta (Risco de Mercado)":
@@ -1021,8 +1110,10 @@ with tabs[2]:
         if df_plot.empty:
             st.warning(f"O benchmark atual não possui volatilidade suficiente para Beta.")
         else:
-            fig_beta = px.line(df_plot, color_discrete_sequence=["#D4AF37"])
-            fig_beta.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+            fig_beta = px.line(df_plot, color_discrete_sequence=[theme['accent']])
+            fig_beta.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+            fig_beta.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+            fig_beta.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
             st.plotly_chart(fig_beta, use_container_width=True, config=PLOTLY_CONFIG, key="dash_beta")
 
 # --- ABA 4: COMPARAÇÃO SETORIAL ---
@@ -1063,8 +1154,10 @@ with tabs[3]:
             for setor, ret_serie in retornos_setores.items():
                 df_plot_setores[setor] = ((1 + ret_serie).cumprod() - 1) * 100
                 
-            fig_setores = px.line(df_plot_setores)
-            fig_setores.update_layout(xaxis_title="Data", yaxis_title="Acumulado (%)", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), legend_title_text='Setor')
+            fig_setores = px.line(df_plot_setores, color_discrete_sequence=theme['chart_seq'])
+            fig_setores.update_layout(xaxis_title="Data", yaxis_title="Acumulado (%)", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), legend_title_text='Setor')
+            fig_setores.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+            fig_setores.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
             st.plotly_chart(fig_setores, use_container_width=True, config=PLOTLY_CONFIG, key="dash_analise_sec")
             
             st.markdown("#### 🏆 Métricas do Período por Setor")
@@ -1123,26 +1216,32 @@ if st.session_state.carteira_comparacao:
         janela = 252
 
         if est_comp == "Fronteira Eficiente (Markowitz)":
-            plot_markowitz(dict_estudo_comp, df_rv_com, cdi_aligned, idx_mestre)
+            plot_markowitz(dict_estudo_comp, df_rv_com, cdi_aligned, idx_mestre, theme)
         
         elif est_comp == "Value at Risk (VaR)":
             df_roll_comp[f"VaR 5% ({setor_filtro_comp})"] = ret_estudo_comp.rolling(janela).quantile(0.05)
-            fig_var_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF"])
-            fig_var_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+            fig_var_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=[theme['accent_comp']])
+            fig_var_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+            fig_var_c.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+            fig_var_c.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
             st.plotly_chart(fig_var_c, use_container_width=True, config=PLOTLY_CONFIG, key="dash_comp_var")
         
         elif est_comp == "Drawdown Histórico":
             df_roll_comp[f"{nome_comp} %"] = (((1 + ret_estudo_comp).cumprod() / (1 + ret_estudo_comp).cumprod().cummax()) - 1) * 100
-            fig_dd_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF"])
-            fig_dd_c.update_traces(fill='tozeroy') 
-            fig_dd_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+            fig_dd_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=[theme['loss']])
+            fig_dd_c.update_traces(fill='tozeroy', opacity=0.2) 
+            fig_dd_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+            fig_dd_c.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+            fig_dd_c.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
             st.plotly_chart(fig_dd_c, use_container_width=True, config=PLOTLY_CONFIG, key="dash_comp_dd")
         
         elif est_comp == "Volatilidade Rolante":
             df_roll_comp[f"{nome_comp} %"] = ret_estudo_comp.rolling(janela).std() * np.sqrt(252) * 100
             df_roll_comp[f"{nome_bench_principal} (%)"] = ret_bench_principal.rolling(janela).std() * np.sqrt(252) * 100
-            fig_vol_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=["#00BFFF", "#555555"])
-            fig_vol_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'))
+            fig_vol_c = px.line(df_roll_comp.dropna(), color_discrete_sequence=[theme['accent_comp'], theme['text_sec']])
+            fig_vol_c.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+            fig_vol_c.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+            fig_vol_c.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
             st.plotly_chart(fig_vol_c, use_container_width=True, config=PLOTLY_CONFIG, key="dash_comp_vol")
 
 # --- ABA 6: ANÁLISE DE ATIVOS (FUNDAMENTOS + GRÁFICO) ---
@@ -1234,8 +1333,10 @@ with tabs[tab_fund_idx]:
                             df_plot["Texto"] = df_plot["Valor"].apply(formata_br)
                             
                             fig_hist = px.bar(df_plot, x="Ano", y="Valor", text="Texto")
-                            fig_hist.update_traces(marker_color='#D4AF37', textfont_color='white', textposition='outside')
-                            fig_hist.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), xaxis_title="", yaxis_title="Valor Nominal", yaxis=dict(showticklabels=False))
+                            fig_hist.update_traces(marker_color=theme['accent'], textfont_color=theme['bg'], textposition='outside')
+                            fig_hist.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), xaxis_title="", yaxis_title="Valor Nominal", yaxis=dict(showticklabels=False))
+                            fig_hist.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+                            fig_hist.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
                             st.plotly_chart(fig_hist, use_container_width=True, config=PLOTLY_CONFIG, key="dash_fund_hist")
                         
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -1254,9 +1355,11 @@ with tabs[tab_fund_idx]:
                         fig_ativo = go.Figure(data=[go.Candlestick(x=df_ohlc.index, open=o, high=h, low=l, close=c)])
                     else:
                         fig_ativo = px.line(x=df_ohlc.index, y=df_ohlc['Close'].squeeze())
-                        fig_ativo.update_traces(line_color='#D4AF37')
+                        fig_ativo.update_traces(line_color=theme['accent'])
                         
-                    fig_ativo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#D4AF37'), xaxis_title="Data", yaxis_title="Cotação / Preço", xaxis_rangeslider_visible=False)
+                    fig_ativo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), xaxis_title="Data", yaxis_title="Cotação / Preço", xaxis_rangeslider_visible=False)
+                    fig_ativo.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
+                    fig_ativo.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']), title_font=dict(color=theme['text_main']))
                     st.plotly_chart(fig_ativo, use_container_width=True, config=PLOTLY_CONFIG, key="dash_ativo_chart")
 
 with tabs[tab_rel_idx]: # RELATÓRIO
@@ -1276,7 +1379,7 @@ with tabs[tab_rel_idx]: # RELATÓRIO
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("### 📊 Exportador de Métricas Individuais (Para Slides/PPT)")
-    fig_export_metr = plot_tabela_metricas(m_prin, nome_cart)
+    fig_export_metr = plot_tabela_metricas(m_prin, nome_cart, theme)
     st.plotly_chart(fig_export_metr, use_container_width=True, config=PLOTLY_CONFIG, key="dash_export_metr")
 
-st.markdown("<div style='text-align:right; color:#D4AF37; opacity:0.6; margin-top: 50px;'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align:right; color:{theme['accent']}; opacity:0.6; margin-top: 50px;'>Idealizado por Bernardo V.</div>", unsafe_allow_html=True)
