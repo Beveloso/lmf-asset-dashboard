@@ -45,7 +45,6 @@ def get_theme_colors(bg_hex):
     """Calcula a luminância e gera uma paleta adaptativa para contraste total"""
     try:
         r, g, b = hex_to_rgb(bg_hex)
-        # Fórmula padrão de luminância perceptiva
         luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     except:
         bg_hex = "#0b0b0b"
@@ -87,15 +86,24 @@ def get_theme_colors(bg_hex):
 st.set_page_config(page_title="LMF - ASSET", layout="wide")
 
 # Inicialização de Estados Primários
-if 'bg_color' not in st.session_state: st.session_state['bg_color'] = "#0b0b0b"
-if 'started' not in st.session_state: st.session_state['started'] = False
-if 'carteira_alterada' not in st.session_state: st.session_state['carteira_alterada'] = False
-if 'carteira' not in st.session_state: st.session_state['carteira'] = {}
-if 'carteira_comparacao' not in st.session_state: st.session_state['carteira_comparacao'] = {}
-if 'modo_impressao' not in st.session_state: st.session_state['modo_impressao'] = False
-if 'nome_carteira' not in st.session_state: st.session_state['nome_carteira'] = "Minha Carteira"
-if 'nome_carteira_comparacao' not in st.session_state: st.session_state['nome_carteira_comparacao'] = "Carteira Importada"
-if 'usar_sliders' not in st.session_state: st.session_state['usar_sliders'] = False
+if 'bg_color' not in st.session_state: 
+    st.session_state['bg_color'] = "#0b0b0b"
+if 'started' not in st.session_state: 
+    st.session_state['started'] = False
+if 'carteira_alterada' not in st.session_state: 
+    st.session_state['carteira_alterada'] = False
+if 'carteira' not in st.session_state: 
+    st.session_state['carteira'] = {}
+if 'carteira_comparacao' not in st.session_state: 
+    st.session_state['carteira_comparacao'] = {}
+if 'modo_impressao' not in st.session_state: 
+    st.session_state['modo_impressao'] = False
+if 'nome_carteira' not in st.session_state: 
+    st.session_state['nome_carteira'] = "Minha Carteira"
+if 'nome_carteira_comparacao' not in st.session_state: 
+    st.session_state['nome_carteira_comparacao'] = "Carteira Importada"
+if 'usar_sliders' not in st.session_state: 
+    st.session_state['usar_sliders'] = False
 
 # Carrega o tema baseado no estado atual da cor de fundo
 theme = get_theme_colors(st.session_state['bg_color'])
@@ -206,7 +214,6 @@ def importar_codigo_carteira(codigo_b64):
 
 def ativar_modo_impressao(): st.session_state['modo_impressao'] = True
 def desativar_modo_impressao(): st.session_state['modo_impressao'] = False
-
 
 # --- FUNÇÕES AUXILIARES DO MOTOR DE PESOS DINÂMICOS ---
 def garantir_dataclasses_state():
@@ -437,7 +444,15 @@ with st.sidebar:
         nome_rf = st.text_input("Nome do Título").strip()
         c_rf1, c_rf2, c_rf3 = st.columns([1.5, 1.5, 1])
         tipo_rf_add = c_rf1.selectbox("Indexador", ["Prefixado", "CDI", "IPCA+"])
-        taxa_input_add = c_rf2.number_input("Taxa Anual (%)", value=10.0, step=0.1)
+        
+        # --- CORREÇÃO DA UI DE RENDA FIXA ---
+        if tipo_rf_add == "CDI":
+            taxa_input_add = c_rf2.number_input("Percentual do CDI (%)", value=100.0, step=1.0)
+        elif tipo_rf_add == "IPCA+":
+            taxa_input_add = c_rf2.number_input("Taxa Fixa (%)", value=6.0, step=0.1)
+        else:
+            taxa_input_add = c_rf2.number_input("Taxa Anual (%)", value=10.0, step=0.1)
+            
         aporte_val_rf = c_rf3.number_input("Peso/Valor Inicial", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
         
         c_rf4, c_rf5 = st.columns(2)
@@ -550,10 +565,11 @@ def calcular_metricas(ret_p, ret_m, cdi_s):
 def calcular_serie_rf(v: AtivoRF, cdi_al, ipca_al, idx_m, marcar_mercado):
     data_c = pd.to_datetime(v.data_compra)
     
+    # --- CORREÇÃO DA MATEMÁTICA DO CDI ---
     if v.indexador == "Prefixado":
         rs_serie = pd.Series((1 + v.taxa)**(1/252) - 1, index=idx_m)
     elif v.indexador == "CDI":
-        rs_serie = ((1 + cdi_al) ** v.taxa) - 1
+        rs_serie = cdi_al * v.taxa
     elif v.indexador == "IPCA+":
         rs_serie = ((1 + ipca_al) * (1 + v.taxa)**(1/252)) - 1
         
@@ -619,7 +635,8 @@ def calcular_retorno_individual(config, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m
             r[r.index < data_c] = 0.0
             return (1 + r).prod() - 1
     elif getattr(config, 'tipo', 'RV') == 'RF':
-        return (1 + calcular_serie_rf(config, cdi_al, ipca_al, idx_m, marcar_mercado)).prod() - 1
+        rs_serie = calcular_serie_rf(config, cdi_al, ipca_al, idx_m, marcar_mercado)
+        return (1 + rs_serie).prod() - 1
     return 0.0
 
 def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m, th):
@@ -628,7 +645,7 @@ def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m, th):
         st.warning("É preciso 2 ativos de RV para simular a Fronteira.")
         return
         
-    with st.spinner("Simulando portfólios..."):
+    with st.spinner("Simulando 5.000 portfólios..."):
         ret_ativos = pd.DataFrame(index=idx_m)
         for t in ativos_rv_validos:
             rc = df_rv_c[t].pct_change().fillna(0)
@@ -764,6 +781,8 @@ nome_cart = st.session_state.get('nome_carteira', 'Minha Carteira')
 nome_comp = st.session_state.get('nome_carteira_comparacao', 'Carteira Importada')
 
 # --- EXECUÇÃO DO MOTOR ---
+garantir_dataclasses_state()
+
 if st.session_state.carteira:
     ativos_rv_principal = [k for k, v in st.session_state.carteira.items() if getattr(v, 'tipo', 'RV') == 'RV']
     ativos_rv_comp = [k for k, v in st.session_state.carteira_comparacao.items() if getattr(v, 'tipo', 'RV') == 'RV']
@@ -782,9 +801,14 @@ if st.session_state.carteira:
     if len(idx_mestre) == 0:
         idx_mestre = pd.bdate_range(start=data_inicio, end=datetime.today())
     
-    cdi_al = fetch_br_indicators(12, data_inicio).reindex(idx_mestre).fillna(0)
+    # --- CORREÇÃO: PLANO DE SEGURANÇA DO CDI RESTAURADO ---
+    cdi_series = fetch_br_indicators(12, data_inicio)
+    if cdi_series.empty:
+        cdi_al = pd.Series((1 + 0.105)**(1/252) - 1, index=idx_mestre)
+    else:
+        cdi_al = cdi_series.reindex(idx_mestre).fillna(0)
+        
     ipca_s = fetch_br_indicators(433, data_inicio)
-    
     if ipca_s.empty:
         ipca_al = pd.Series((1 + 0.045)**(1/252) - 1, index=idx_mestre)
     else:
@@ -808,6 +832,7 @@ if st.session_state.carteira:
     ret_portfolio_principal = ret_port_com if reinvestir else ret_port_sem
     
     if st.session_state.carteira_comparacao:
+        garantir_dataclasses_state_comparacao()
         ret_comp_com, ret_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_al, ipca_al, idx_mestre, reinvestir_comp, False)
         ret_portfolio_comparacao = ret_comp_com if reinvestir_comp else ret_comp_sem
 
@@ -1135,31 +1160,41 @@ if st.session_state.carteira:
             ativo_selecionado = st.selectbox("Ativo para Análise:", ativos_rv_principal)
             if ativo_selecionado:
                 info_fund = fetch_fundamental_info(ativo_selecionado)
+                
+                # --- RECUPERAÇÃO COMPLETA DOS FUNDAMENTOS ---
                 if info_fund:
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("P/L", formatar_float(info_fund.get('trailingPE') or info_fund.get('forwardPE')))
-                    c2.metric("P/VP", formatar_float(info_fund.get('priceToBook')))
-                    c3.metric("EV/EBITDA", formatar_float(info_fund.get('enterpriseToEbitda')))
-                    c4.metric("DY", formatar_dy(info_fund.get('trailingAnnualDividendYield') or info_fund.get('dividendYield')))
-                    
+                    st.markdown(f"### 📊 Raio-X Fundamentalista: {ativo_selecionado}")
+                    st.caption("⚠️ **Aviso de Dados:** As métricas abaixo são extraídas de provedores públicos globais (API Gratuita).")
                     st.markdown("---")
-                    st.subheader("📈 Rentabilidade & Eficiência")
+                    
+                    st.subheader("💰 Valuation & Preço", divider='gray')
+                    v1, v2, v3, v4, v5 = st.columns(5)
+                    v1.metric("P/L (Preço/Lucro)", formatar_float(info_fund.get('trailingPE') or info_fund.get('forwardPE')))
+                    v2.metric("P/VP", formatar_float(info_fund.get('priceToBook')))
+                    v3.metric("EV/EBITDA", formatar_float(info_fund.get('enterpriseToEbitda')))
+                    v4.metric("P/SR (Receita)", formatar_float(info_fund.get('priceToSalesTrailing12Months')))
+                    v5.metric("Dividend Yield", formatar_dy(info_fund.get('trailingAnnualDividendYield') or info_fund.get('dividendYield')))
+                    
+                    st.subheader("📈 Rentabilidade & Eficiência", divider='gray')
                     r1, r2, r3, r4, r5 = st.columns(5)
-                    r1.metric("ROE", formatar_pct_api(info_fund.get('returnOnEquity')))
-                    r2.metric("ROA", formatar_pct_api(info_fund.get('returnOnAssets')))
-                    r3.metric("Mg Bruta", formatar_pct_api(info_fund.get('grossMargins')))
-                    r4.metric("Mg EBITDA", formatar_pct_api(info_fund.get('ebitdaMargins')))
-                    r5.metric("Mg Líquida", formatar_pct_api(info_fund.get('profitMargins')))
+                    r1.metric("ROE (Retorno s/ PL)", formatar_pct_api(info_fund.get('returnOnEquity')))
+                    r2.metric("ROA (Retorno s/ Ativos)", formatar_pct_api(info_fund.get('returnOnAssets')))
+                    r3.metric("Margem Bruta", formatar_pct_api(info_fund.get('grossMargins')))
+                    r4.metric("Margem EBITDA", formatar_pct_api(info_fund.get('ebitdaMargins')))
+                    r5.metric("Margem Líquida", formatar_pct_api(info_fund.get('profitMargins')))
                     
-                    st.markdown("---")
-                    st.subheader("🏛️ Saúde Financeira & Estrutura")
+                    st.subheader("🏛️ Saúde Financeira & Estrutura", divider='gray')
                     s1, s2, s3, s4, s5 = st.columns(5)
-                    s1.metric("Liq. Corrente", formatar_float(info_fund.get('currentRatio')))
-                    div_pat = info_fund.get('debtToEquity')
-                    s2.metric("Dívida/Patr.", formatar_float(div_pat / 100) if div_pat else "N/A")
-                    s3.metric("VPA", formatar_float(info_fund.get('bookValue')))
-                    s4.metric("LPA", formatar_float(info_fund.get('trailingEps') or info_fund.get('forwardEps')))
-                    s5.metric("Market Cap", formatar_abrev(info_fund.get('marketCap')))
+                    s1.metric("Liquidez Corrente", formatar_float(info_fund.get('currentRatio')))
+                    div_pat_val = info_fund.get('debtToEquity')
+                    div_pat_str = formatar_float(div_pat_val / 100) if div_pat_val and div_pat_val != 0 else "N/A"
+                    s2.metric("Dívida/Patrimônio", div_pat_str)
+                    s3.metric("VPA (Val. Patr. Ação)", formatar_float(info_fund.get('bookValue')))
+                    s4.metric("LPA (Lucro Ação)", formatar_float(info_fund.get('trailingEps') or info_fund.get('forwardEps')))
+                    s5.metric("Valor de Mercado", formatar_abrev(info_fund.get('marketCap')))
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown("### 📈 Evolução Histórica Contábil")
                     
                     fin, bs, cf = fetch_historical_fundamentals(ativo_selecionado)
                     opcoes_historico = {}
@@ -1184,11 +1219,8 @@ if st.session_state.carteira:
                         if "Operating Cash Flow" in cf.index: opcoes_historico["Caixa Operacional"] = ("Operating Cash Flow", cf)
                         if "Free Cash Flow" in cf.index: opcoes_historico["Fluxo de Caixa Livre"] = ("Free Cash Flow", cf)
                     
-                    st.markdown("---")
-                    st.subheader("📊 Histórico Contábil")
-                    
                     if opcoes_historico:
-                        metrica_hist = st.selectbox("Selecione a métrica:", list(opcoes_historico.keys()))
+                        metrica_hist = st.selectbox("Selecione a métrica contábil:", list(opcoes_historico.keys()))
                         nome_api, df_fonte = opcoes_historico[metrica_hist]
                         serie_hist = df_fonte.loc[nome_api].dropna().sort_index()
                         
@@ -1201,12 +1233,15 @@ if st.session_state.carteira:
                                 if abs_v >= 1e6: return f"{sinal}{abs_v/1e6:.2f} M"
                                 return f"{sinal}{abs_v:,.0f}"
                                 
-                            df_plot = pd.DataFrame({"Ano": serie_hist.index.year.astype(str), "Valor": serie_hist.values})
+                            df_plot = pd.DataFrame({
+                                "Ano": serie_hist.index.year.astype(str),
+                                "Valor": serie_hist.values
+                            })
                             df_plot["Texto"] = df_plot["Valor"].apply(formata_br)
                             
                             fig_hist = px.bar(df_plot, x="Ano", y="Valor", text="Texto")
                             fig_hist.update_traces(marker_color=theme['accent'], textfont_color=theme['bg'], textposition='outside')
-                            fig_hist.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), yaxis=dict(showticklabels=False))
+                            fig_hist.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), xaxis_title="", yaxis_title="Valor Nominal", yaxis=dict(showticklabels=False))
                             fig_hist.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']))
                             fig_hist.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']))
                             st.plotly_chart(fig_hist, use_container_width=True, config=PLOTLY_CONFIG)
@@ -1218,7 +1253,10 @@ if st.session_state.carteira:
                 
                 if not df_cotacao.empty and 'Close' in df_cotacao:
                     if tipo_grafico_ativo == "Candlestick" and 'Open' in df_cotacao:
-                        o, h, l, c = df_cotacao['Open'].squeeze(), df_cotacao['High'].squeeze(), df_cotacao['Low'].squeeze(), df_cotacao['Close'].squeeze()
+                        o = df_cotacao['Open'].squeeze()
+                        h = df_cotacao['High'].squeeze()
+                        l = df_cotacao['Low'].squeeze()
+                        c = df_cotacao['Close'].squeeze()
                         fig_cot = go.Figure(data=[go.Candlestick(x=df_cotacao.index, open=o, high=h, low=l, close=c)])
                     else:
                         fig_cot = px.line(x=df_cotacao.index, y=df_cotacao['Close'].squeeze())
