@@ -45,6 +45,7 @@ def get_theme_colors(bg_hex):
     """Calcula a luminância e gera uma paleta adaptativa para contraste total"""
     try:
         r, g, b = hex_to_rgb(bg_hex)
+        # Fórmula padrão de luminância perceptiva
         luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     except:
         bg_hex = "#0b0b0b"
@@ -65,6 +66,8 @@ def get_theme_colors(bg_hex):
             "line_base": "#1a1a1a",
             "win": "#008000", 
             "loss": "#CC0000",
+            "input_bg": "#ffffff",           # Branco sólido para caixas no tema claro
+            "input_border": "#cccccc",       # Borda cinza sutil
             "chart_seq": ["#003f5c", "#d45087", "#2f4b7c", "#f95d6a", "#665191", "#ff7c43", "#a05195", "#ffa600"]
         }
     else:
@@ -79,6 +82,8 @@ def get_theme_colors(bg_hex):
             "line_base": "#ffffff",
             "win": "#4CAF50",
             "loss": "#F44336",
+            "input_bg": "#1a1a1a",           # Escuro sólido para caixas no tema escuro
+            "input_border": "#333333",       # Borda sutil escura
             "chart_seq": ["#D4AF37", "#00BFFF", "#32CD32", "#FF6347", "#8A2BE2", "#FF69B4", "#00FA9A", "#FF4500"]
         }
 
@@ -86,24 +91,15 @@ def get_theme_colors(bg_hex):
 st.set_page_config(page_title="LMF - ASSET", layout="wide")
 
 # Inicialização de Estados Primários
-if 'bg_color' not in st.session_state: 
-    st.session_state['bg_color'] = "#0b0b0b"
-if 'started' not in st.session_state: 
-    st.session_state['started'] = False
-if 'carteira_alterada' not in st.session_state: 
-    st.session_state['carteira_alterada'] = False
-if 'carteira' not in st.session_state: 
-    st.session_state['carteira'] = {}
-if 'carteira_comparacao' not in st.session_state: 
-    st.session_state['carteira_comparacao'] = {}
-if 'modo_impressao' not in st.session_state: 
-    st.session_state['modo_impressao'] = False
-if 'nome_carteira' not in st.session_state: 
-    st.session_state['nome_carteira'] = "Minha Carteira"
-if 'nome_carteira_comparacao' not in st.session_state: 
-    st.session_state['nome_carteira_comparacao'] = "Carteira Importada"
-if 'usar_sliders' not in st.session_state: 
-    st.session_state['usar_sliders'] = False
+if 'bg_color' not in st.session_state: st.session_state['bg_color'] = "#0b0b0b"
+if 'started' not in st.session_state: st.session_state['started'] = False
+if 'carteira_alterada' not in st.session_state: st.session_state['carteira_alterada'] = False
+if 'carteira' not in st.session_state: st.session_state['carteira'] = {}
+if 'carteira_comparacao' not in st.session_state: st.session_state['carteira_comparacao'] = {}
+if 'modo_impressao' not in st.session_state: st.session_state['modo_impressao'] = False
+if 'nome_carteira' not in st.session_state: st.session_state['nome_carteira'] = "Minha Carteira"
+if 'nome_carteira_comparacao' not in st.session_state: st.session_state['nome_carteira_comparacao'] = "Carteira Importada"
+if 'usar_sliders' not in st.session_state: st.session_state['usar_sliders'] = False
 
 # Carrega o tema baseado no estado atual da cor de fundo
 theme = get_theme_colors(st.session_state['bg_color'])
@@ -130,7 +126,45 @@ st.markdown(f"""
     button[data-baseweb="tab"] p {{ color: {theme['text_sec']} !important; font-size: 1.1em; }}
     button[data-baseweb="tab"][aria-selected="true"] p {{ color: {theme['accent']} !important; font-weight: bold !important; }}
     button[data-baseweb="tab"][aria-selected="true"] {{ border-bottom-color: {theme['accent']} !important; }}
-    .stTextInput input, .stNumberInput input, div[data-baseweb="select"] {{ background-color: {theme['bg_card']} !important; color: {theme['text_main']} !important; }}
+    
+    /* ======================================================== */
+    /* CORREÇÃO DEFINITIVA DAS CAIXAS DE INPUT (SÓLIDAS) */
+    /* ======================================================== */
+    .stTextInput input, 
+    .stNumberInput input, 
+    .stDateInput input,
+    div[data-baseweb="base-input"],
+    div[data-baseweb="select"] > div,
+    ul[role="listbox"] {{
+        background-color: {theme['input_bg']} !important;
+        color: {theme['text_main']} !important;
+        -webkit-text-fill-color: {theme['text_main']} !important;
+        border: 1px solid {theme['input_border']} !important;
+        border-radius: 6px !important;
+    }}
+    
+    /* Evita fundos duplicados na caixa base do Streamlit */
+    div[data-baseweb="base-input"] input {{
+        background-color: transparent !important;
+        border: none !important;
+    }}
+    
+    /* Textos dentro do Select/Dropdown */
+    div[data-baseweb="select"] span {{
+        color: {theme['text_main']} !important;
+    }}
+    
+    /* Tags de Multi-Select (ex: Benchmarks) */
+    span[data-baseweb="tag"] {{
+        background-color: {theme['accent']} !important; 
+        color: #000000 !important; 
+        border: none !important;
+    }}
+    span[data-baseweb="tag"] * {{
+        color: #000000 !important; 
+    }}
+    /* ======================================================== */
+    
     hr {{ border-color: {theme['accent']} !important; opacity: 0.3; }}
     table {{ width: 100%; text-align: center; border-collapse: collapse; margin-bottom: 20px; color: {theme['text_main']} !important; }}
     th {{ border-bottom: 2px solid {theme['accent']}; color: {theme['accent']}; padding: 10px; }}
@@ -214,6 +248,7 @@ def importar_codigo_carteira(codigo_b64):
 
 def ativar_modo_impressao(): st.session_state['modo_impressao'] = True
 def desativar_modo_impressao(): st.session_state['modo_impressao'] = False
+
 
 # --- FUNÇÕES AUXILIARES DO MOTOR DE PESOS DINÂMICOS ---
 def garantir_dataclasses_state():
@@ -390,7 +425,7 @@ with st.sidebar:
             c_taxa2.number_input("IPCA Atual BCB (%)", value=4.5, disabled=True)
             
         reinvestir = st.checkbox("Reinvestir Dividendos na Carteira Principal", value=True)
-        marcar_mercado_ativado = st.checkbox("Ativar Marcação a Mercado (Aproximação RF)", value=False)
+        marcar_mercado_ativado = st.checkbox("Marcação a Mercado (Aproximação RF)", value=False)
         
     with st.expander("💾 Salvar Trabalho & Comparar", expanded=False):
         st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**O SEU SAVE:** Copie o código abaixo.</span>", unsafe_allow_html=True)
@@ -399,7 +434,7 @@ with st.sidebar:
         
         st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
         codigo_import = st.text_input("Código de Comparação:")
-        reinvestir_comp = st.checkbox("Reinvestir Div. (Carteira Importada)", value=True)
+        reinvestir_comp = st.checkbox("Reinvestir Div. (Comparada)", value=True)
         
         if st.button("Carregar Comparação", use_container_width=True):
             cart_importada, nome_imp = importar_codigo_carteira(codigo_import)
@@ -417,7 +452,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("➕ Adicionar Ativos")
     
-    # --- OPÇÃO DE SLIDER SE FOR POR PESO ---
     if modo_aporte == "Por Peso (%)":
         st.session_state['usar_sliders'] = st.checkbox("Ativar Balanceamento Dinâmico (Sliders)", value=st.session_state.get('usar_sliders', False))
     else:
@@ -445,7 +479,6 @@ with st.sidebar:
         c_rf1, c_rf2, c_rf3 = st.columns([1.5, 1.5, 1])
         tipo_rf_add = c_rf1.selectbox("Indexador", ["Prefixado", "CDI", "IPCA+"])
         
-        # --- CORREÇÃO DA UI DE RENDA FIXA ---
         if tipo_rf_add == "CDI":
             taxa_input_add = c_rf2.number_input("Percentual do CDI (%)", value=100.0, step=1.0)
         elif tipo_rf_add == "IPCA+":
@@ -565,7 +598,6 @@ def calcular_metricas(ret_p, ret_m, cdi_s):
 def calcular_serie_rf(v: AtivoRF, cdi_al, ipca_al, idx_m, marcar_mercado):
     data_c = pd.to_datetime(v.data_compra)
     
-    # --- CORREÇÃO DA MATEMÁTICA DO CDI ---
     if v.indexador == "Prefixado":
         rs_serie = pd.Series((1 + v.taxa)**(1/252) - 1, index=idx_m)
     elif v.indexador == "CDI":
@@ -635,8 +667,7 @@ def calcular_retorno_individual(config, df_rv_c, df_rv_s, cdi_al, ipca_al, idx_m
             r[r.index < data_c] = 0.0
             return (1 + r).prod() - 1
     elif getattr(config, 'tipo', 'RV') == 'RF':
-        rs_serie = calcular_serie_rf(config, cdi_al, ipca_al, idx_m, marcar_mercado)
-        return (1 + rs_serie).prod() - 1
+        return (1 + calcular_serie_rf(config, cdi_al, ipca_al, idx_m, marcar_mercado)).prod() - 1
     return 0.0
 
 def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m, th):
@@ -801,7 +832,6 @@ if st.session_state.carteira:
     if len(idx_mestre) == 0:
         idx_mestre = pd.bdate_range(start=data_inicio, end=datetime.today())
     
-    # --- CORREÇÃO: PLANO DE SEGURANÇA DO CDI RESTAURADO ---
     cdi_series = fetch_br_indicators(12, data_inicio)
     if cdi_series.empty:
         cdi_al = pd.Series((1 + 0.105)**(1/252) - 1, index=idx_mestre)
@@ -1161,10 +1191,9 @@ if st.session_state.carteira:
             if ativo_selecionado:
                 info_fund = fetch_fundamental_info(ativo_selecionado)
                 
-                # --- RECUPERAÇÃO COMPLETA DOS FUNDAMENTOS ---
                 if info_fund:
                     st.markdown(f"### 📊 Raio-X Fundamentalista: {ativo_selecionado}")
-                    st.caption("⚠️ **Aviso de Dados:** As métricas abaixo são extraídas de provedores públicos globais (API Gratuita).")
+                    st.caption("⚠️ **Aviso de Dados:** As métricas abaixo são extraídas de provedores públicos globais. (API Gratuita)")
                     st.markdown("---")
                     
                     st.subheader("💰 Valuation & Preço", divider='gray')
@@ -1241,7 +1270,7 @@ if st.session_state.carteira:
                             
                             fig_hist = px.bar(df_plot, x="Ano", y="Valor", text="Texto")
                             fig_hist.update_traces(marker_color=theme['accent'], textfont_color=theme['bg'], textposition='outside')
-                            fig_hist.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), xaxis_title="", yaxis_title="Valor Nominal", yaxis=dict(showticklabels=False))
+                            fig_hist.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']), yaxis=dict(showticklabels=False))
                             fig_hist.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']))
                             fig_hist.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']))
                             st.plotly_chart(fig_hist, use_container_width=True, config=PLOTLY_CONFIG)
