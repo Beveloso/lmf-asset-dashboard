@@ -45,7 +45,6 @@ def get_theme_colors(bg_hex):
     """Calcula a luminância e gera uma paleta adaptativa para contraste total"""
     try:
         r, g, b = hex_to_rgb(bg_hex)
-        # Fórmula padrão de luminância perceptiva
         luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     except:
         bg_hex = "#0b0b0b"
@@ -243,6 +242,7 @@ def importar_codigo_carteira(codigo_b64):
 def ativar_modo_impressao(): st.session_state['modo_impressao'] = True
 def desativar_modo_impressao(): st.session_state['modo_impressao'] = False
 
+
 # --- FUNÇÕES AUXILIARES DO MOTOR DE PESOS DINÂMICOS ---
 def garantir_dataclasses_state():
     if st.session_state.carteira:
@@ -397,6 +397,13 @@ with st.sidebar:
         
     data_inicio = col_dt.date_input("Data Inicial", value=datetime(2012,1,1), min_value=datetime(1900,1,1), max_value=datetime.today())
     
+    # --- NOVO: DATA FINAL CUSTOMIZÁVEL ---
+    modificar_data_final = st.checkbox("Definir Data Final Específica?", value=False)
+    if modificar_data_final:
+        data_fim = st.date_input("Data Final", value=datetime.today().date(), min_value=data_inicio, max_value=datetime.today().date())
+    else:
+        data_fim = datetime.today().date()
+        
     with st.expander("📊 Parâmetros de Mercado & Benchmarks", expanded=False):
         opcoes_bench = ["Ibovespa", "IFIX", "S&P 500", "NASDAQ", "SMLL (Small Caps)", "Ouro", "IPCA + Taxa", "CDI (Percentual)", "Selic"]
         benchmarks_sel = st.multiselect("Selecione os Benchmarks:", opcoes_bench, default=["Ibovespa"])
@@ -445,7 +452,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("➕ Adicionar Ativos")
     
-    # --- OPÇÃO DE SLIDER SE FOR POR PESO ---
     if modo_aporte == "Por Peso (%)":
         st.session_state['usar_sliders'] = st.checkbox("Ativar Balanceamento Dinâmico (Sliders)", value=st.session_state.get('usar_sliders', False))
     else:
@@ -460,7 +466,7 @@ with st.sidebar:
         aporte_val = c_rv2.number_input("Peso/Valor Inicial", min_value=1.0, value=10.0 if modo_aporte=="Por Peso (%)" else 1000.0)
         setor_rv = st.selectbox("Setor (Opcional)", OPCOES_SETORES)
         comprado_inicio_rv = st.checkbox("Desde o Início?", value=True, key="chk_rv")
-        data_compra_rv = data_inicio if comprado_inicio_rv else st.date_input("Comprado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today())
+        data_compra_rv = data_inicio if comprado_inicio_rv else st.date_input("Comprado em", value=data_inicio, min_value=data_inicio, max_value=data_fim)
         
         if st.button("Inserir Renda Variável") and ticker_add:
             if re.match(r'^[A-Z0-9\.\-\=]+$', ticker_add): 
@@ -474,7 +480,6 @@ with st.sidebar:
         c_rf1, c_rf2, c_rf3 = st.columns([1.5, 1.5, 1])
         tipo_rf_add = c_rf1.selectbox("Indexador", ["Prefixado", "CDI", "IPCA+"])
         
-        # --- CORREÇÃO DA UI DE RENDA FIXA ---
         if tipo_rf_add == "CDI":
             taxa_input_add = c_rf2.number_input("Percentual do CDI (%)", value=100.0, step=1.0)
         elif tipo_rf_add == "IPCA+":
@@ -486,7 +491,7 @@ with st.sidebar:
         
         c_rf4, c_rf5 = st.columns(2)
         comprado_inicio_rf = c_rf4.checkbox("Desde o Início?", value=True, key="chk_rf")
-        data_compra_rf = data_inicio if comprado_inicio_rf else c_rf4.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, max_value=datetime.today())
+        data_compra_rf = data_inicio if comprado_inicio_rf else c_rf4.date_input("Aplicado em", value=data_inicio, min_value=data_inicio, max_value=data_fim)
         data_vencimento_rf = c_rf5.date_input("Vencimento (MTM)", value=datetime(2030,1,1).date())
 
         if st.button("Inserir Renda Fixa") and nome_rf:
@@ -510,12 +515,13 @@ if st.session_state.carteira and modo_aporte == "Por Peso (%)" and st.session_st
 
 # --- MOTOR DE DADOS OTIMIZADO E BLINDADO ---
 @st.cache_data(ttl=600)
-def download_precos_limpos(tickers, start):
+def download_precos_limpos(tickers, start, end_date):
     if not tickers:
         return pd.DataFrame(), pd.DataFrame()
     with st.spinner("Baixando e otimizando dados..."):
         try:
-            df = yf.download(tickers, start=start, progress=False, auto_adjust=False)
+            end_dt = pd.to_datetime(end_date) + timedelta(days=1)
+            df = yf.download(tickers, start=start, end=end_dt, progress=False, auto_adjust=False)
             if df.empty:
                 return pd.DataFrame(), pd.DataFrame()
                 
@@ -531,9 +537,9 @@ def download_precos_limpos(tickers, start):
             return pd.DataFrame(), pd.DataFrame()
 
 @st.cache_data(ttl=86400) 
-def fetch_br_indicators(codigo, start_date):
+def fetch_br_indicators(codigo, start_date, end_date):
     try:
-        url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados?formato=json&dataInicial={start_date.strftime('%d/%m/%Y')}&dataFinal={datetime.today().strftime('%d/%m/%Y')}"
+        url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados?formato=json&dataInicial={start_date.strftime('%d/%m/%Y')}&dataFinal={end_date.strftime('%d/%m/%Y')}"
         df = pd.read_json(url)
         df['data'] = pd.to_datetime(df['data'], format='%d/%m/%Y')
         df.set_index('data', inplace=True)
@@ -699,7 +705,6 @@ def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m, th):
         fig = px.scatter(df_ef, x='Volatilidade', y='Retorno', color='Sharpe', color_continuous_scale='Viridis')
         fig.add_trace(go.Scatter(x=[p_max['Volatilidade']], y=[p_max['Retorno']], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='Máximo Sharpe'))
         
-        # --- LÓGICA DA LINHA DA FRONTEIRA EFICIENTE ---
         min_vol_idx = df_ef['Volatilidade'].idxmin()
         min_vol_ret = df_ef.loc[min_vol_idx, 'Retorno']
         
@@ -777,12 +782,10 @@ def plot_correlation_matrix(ativos_dict, df_rv_c, idx_m, setor_filter, th):
         
         st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
         
-        # --- DESTAQUES DA MATRIZ DE CORRELAÇÃO ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(f"<h4 style='color: {th['accent']};'>🔍 Destaques da Matriz</h4>", unsafe_allow_html=True)
         
         if len(ativos_rv) > 2:
-            # Pega apenas a parte superior da matriz para evitar pares duplicados e a diagonal (1.0)
             upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
             corr_pairs = upper_tri.unstack().dropna().sort_values(ascending=False)
             
@@ -870,6 +873,8 @@ nome_cart = st.session_state.get('nome_carteira', 'Minha Carteira')
 nome_comp = st.session_state.get('nome_carteira_comparacao', 'Carteira Importada')
 
 # --- EXECUÇÃO DO MOTOR ---
+garantir_dataclasses_state()
+
 if st.session_state.carteira:
     ativos_rv_principal = [k for k, v in st.session_state.carteira.items() if getattr(v, 'tipo', 'RV') == 'RV']
     ativos_rv_comp = [k for k, v in st.session_state.carteira_comparacao.items() if getattr(v, 'tipo', 'RV') == 'RV']
@@ -878,34 +883,34 @@ if st.session_state.carteira:
     tickers_bench_b3 = [mapa_bench[b] for b in benchmarks_sel if b in mapa_bench]
     todos_tickers = list(set(ativos_rv_principal + ativos_rv_comp + tickers_bench_b3))
 
-    df_rv_com, df_rv_sem = download_precos_limpos(todos_tickers, data_inicio) 
+    df_rv_com, df_rv_sem = download_precos_limpos(todos_tickers, data_inicio, data_fim) 
     
     if not df_rv_com.empty:
         idx_mestre = df_rv_com.dropna(how='all').index
     else:
-        idx_mestre = pd.bdate_range(start=data_inicio, end=datetime.today())
+        idx_mestre = pd.bdate_range(start=data_inicio, end=data_fim)
         
     if len(idx_mestre) == 0:
-        idx_mestre = pd.bdate_range(start=data_inicio, end=datetime.today())
+        idx_mestre = pd.bdate_range(start=data_inicio, end=data_fim)
     
-    cdi_series = fetch_br_indicators(12, data_inicio)
+    cdi_series = fetch_br_indicators(12, data_inicio, data_fim)
     if cdi_series.empty:
         cdi_al = pd.Series((1 + 0.105)**(1/252) - 1, index=idx_mestre)
     else:
         cdi_al = cdi_series.reindex(idx_mestre).fillna(0)
         
-    ipca_s = fetch_br_indicators(433, data_inicio)
+    ipca_s = fetch_br_indicators(433, data_inicio, data_fim)
     if ipca_s.empty:
         ipca_al = pd.Series((1 + 0.045)**(1/252) - 1, index=idx_mestre)
     else:
-        ipca_al = ((1 + ipca_s)**(1/21) - 1).reindex(pd.date_range(start=ipca_s.index.min(), end=datetime.today())).ffill().reindex(idx_mestre).fillna(0)
+        ipca_al = ((1 + ipca_s)**(1/21) - 1).reindex(pd.date_range(start=ipca_s.index.min(), end=data_fim)).ffill().reindex(idx_mestre).fillna(0)
 
     dict_ret_benchs = {}
     for b in benchmarks_sel:
         if b == "CDI (Percentual)":
             dict_ret_benchs[b] = cdi_al * taxa_cdi_bench
         elif b == "Selic":
-            dict_ret_benchs[b] = fetch_br_indicators(11, data_inicio).reindex(idx_mestre).fillna(0)
+            dict_ret_benchs[b] = fetch_br_indicators(11, data_inicio, data_fim).reindex(idx_mestre).fillna(0)
         elif b == "IPCA + Taxa":
             dict_ret_benchs[b] = (1 + ipca_al) * (1 + taxa_ipca_bench)**(1/252) - 1
         elif b in mapa_bench and mapa_bench[b] in df_rv_com.columns:
@@ -918,6 +923,7 @@ if st.session_state.carteira:
     ret_portfolio_principal = ret_port_com if reinvestir else ret_port_sem
     
     if st.session_state.carteira_comparacao:
+        garantir_dataclasses_state_comparacao()
         ret_comp_com, ret_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_al, ipca_al, idx_mestre, reinvestir_comp, False)
         ret_portfolio_comparacao = ret_comp_com if reinvestir_comp else ret_comp_sem
 
@@ -1199,7 +1205,7 @@ if st.session_state.carteira:
         st.markdown("### 📊 Análise Setorial")
         c_d1, c_d2 = st.columns(2)
         dt_s = c_d1.date_input("Início:", value=data_inicio)
-        dt_e = c_d2.date_input("Fim:", value=datetime.today().date())
+        dt_e = c_d2.date_input("Fim:", value=data_fim)
         
         setores_totais = list(set([getattr(v, 'setor', 'Outros') if getattr(v, 'tipo', 'RV') == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
         set_sel = st.multiselect("Setores:", setores_totais, default=setores_totais[:3] if len(setores_totais)>=3 else setores_totais)
@@ -1333,7 +1339,7 @@ if st.session_state.carteira:
                 st.markdown("---")
                 st.markdown("### 📉 Cotação Histórica")
                 tipo_grafico_ativo = st.radio("Formato:", ["Linha", "Candlestick"], horizontal=True)
-                df_cotacao = yf.download(ativo_selecionado, start=data_inicio, progress=False)
+                df_cotacao = yf.download(ativo_selecionado, start=data_inicio, end=pd.to_datetime(data_fim) + timedelta(days=1), progress=False)
                 
                 if not df_cotacao.empty and 'Close' in df_cotacao:
                     if tipo_grafico_ativo == "Candlestick" and 'Open' in df_cotacao:
