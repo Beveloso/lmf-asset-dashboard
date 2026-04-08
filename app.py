@@ -45,6 +45,7 @@ def get_theme_colors(bg_hex):
     """Calcula a luminância e gera uma paleta adaptativa para contraste total"""
     try:
         r, g, b = hex_to_rgb(bg_hex)
+        # Fórmula padrão de luminância perceptiva
         luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     except:
         bg_hex = "#0b0b0b"
@@ -181,7 +182,13 @@ PLOTLY_CONFIG = {
     'toImageButtonOptions': {'format': 'png', 'filename': 'LMF_Asset_Export', 'height': 720, 'width': 1280, 'scale': 2 }
 }
 
-OPCOES_SETORES = ["Outros", "Consumo Cíclico", "Consumo não Cíclico", "Utilidade Pública", "Bens Industriais", "Materiais Básicos", "Financeiro e Outros", "Tecnologia da Informação", "Saúde", "Petróleo, Gás e Biocombustíveis", "Comunicações"]
+OPCOES_SETORES = [
+    "Outros", "Consumo Cíclico", "Consumo não Cíclico", "Utilidade Pública", 
+    "Bens Industriais", "Materiais Básicos", "Financeiro e Outros", 
+    "Tecnologia da Informação", "Saúde", "Petróleo, Gás e Biocombustíveis", "Comunicações",
+    "Conjunto 1", "Conjunto 2", "Conjunto 3", "Conjunto 4", 
+    "Conjunto 5", "Conjunto 6", "Conjunto 7", "Conjunto 8"
+]
 
 # --- FUNÇÕES DE LÓGICA E DADOS ---
 def formatar_moeda(valor): return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -397,7 +404,6 @@ with st.sidebar:
         
     data_inicio = col_dt.date_input("Data Inicial", value=datetime(2012,1,1), min_value=datetime(1900,1,1), max_value=datetime.today())
     
-    # --- NOVO: DATA FINAL CUSTOMIZÁVEL ---
     modificar_data_final = st.checkbox("Definir Data Final Específica?", value=False)
     if modificar_data_final:
         data_fim = st.date_input("Data Final", value=datetime.today().date(), min_value=data_inicio, max_value=datetime.today().date())
