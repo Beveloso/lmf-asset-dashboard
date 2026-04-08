@@ -45,7 +45,6 @@ def get_theme_colors(bg_hex):
     """Calcula a luminância e gera uma paleta adaptativa para contraste total"""
     try:
         r, g, b = hex_to_rgb(bg_hex)
-        # Fórmula padrão de luminância perceptiva
         luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     except:
         bg_hex = "#0b0b0b"
@@ -100,6 +99,19 @@ if 'modo_impressao' not in st.session_state: st.session_state['modo_impressao'] 
 if 'nome_carteira' not in st.session_state: st.session_state['nome_carteira'] = "Minha Carteira"
 if 'nome_carteira_comparacao' not in st.session_state: st.session_state['nome_carteira_comparacao'] = "Carteira Importada"
 if 'usar_sliders' not in st.session_state: st.session_state['usar_sliders'] = False
+
+# Estados de Data (Global para o salvamento)
+if 'data_inicio' not in st.session_state: st.session_state['data_inicio'] = datetime(2012, 1, 1).date()
+if 'data_fim' not in st.session_state: st.session_state['data_fim'] = datetime.today().date()
+if 'usar_data_fim' not in st.session_state: st.session_state['usar_data_fim'] = False
+
+# Estados do Relatório
+if 'rel_comp' not in st.session_state: st.session_state['rel_comp'] = True
+if 'rel_metr' not in st.session_state: st.session_state['rel_metr'] = True
+if 'rel_rent' not in st.session_state: st.session_state['rel_rent'] = True
+if 'rel_rx' not in st.session_state: st.session_state['rel_rx'] = False
+if 'rel_sec_comp' not in st.session_state: st.session_state['rel_sec_comp'] = False
+if 'rel_sec_sel' not in st.session_state: st.session_state['rel_sec_sel'] = []
 
 # Carrega o tema baseado no estado atual da cor de fundo
 theme = get_theme_colors(st.session_state['bg_color'])
@@ -190,7 +202,7 @@ OPCOES_SETORES = [
     "Conjunto 5", "Conjunto 6", "Conjunto 7", "Conjunto 8"
 ]
 
-# --- FUNÇÕES DE LÓGICA E DADOS ---
+# --- FUNÇÕES DE LÓGICA E DADOS (ATUALIZADAS PARA DATAS) ---
 def formatar_moeda(valor): return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 def formatar_percentual(valor): return f"{'+' if valor >= 0 else ''}{valor*100:.2f}%"
 def formatar_float(valor): return "N/A" if valor is None or pd.isna(valor) else f"{float(valor):.2f}"
@@ -217,7 +229,7 @@ def dataclass_to_dict(obj):
         return data
     return obj
 
-def exportar_codigo_carteira(carteira_dict, nome_carteira):
+def exportar_codigo_carteira(carteira_dict, nome_carteira, dt_in, dt_out, usr_dt_out):
     if not carteira_dict: return ""
     cart_export = {}
     for k, v in carteira_dict.items():
@@ -227,13 +239,26 @@ def exportar_codigo_carteira(carteira_dict, nome_carteira):
         if 'data_vencimento' in v_copy and v_copy['data_vencimento'] is not None:
             v_copy['data_vencimento'] = v_copy['data_vencimento'].strftime('%Y-%m-%d') if hasattr(v_copy['data_vencimento'], 'strftime') else str(v_copy['data_vencimento'])
         cart_export[k] = v_copy
+    
     cart_export['__meta_nome__'] = nome_carteira
+    cart_export['__meta_dt_inicio__'] = dt_in.strftime('%Y-%m-%d')
+    cart_export['__meta_dt_fim__'] = dt_out.strftime('%Y-%m-%d')
+    cart_export['__meta_usar_dt_fim__'] = usr_dt_out
+    
     return base64.b64encode(json.dumps(cart_export).encode('utf-8')).decode('utf-8')
 
 def importar_codigo_carteira(codigo_b64):
     try:
         cart_bruto = json.loads(base64.b64decode(codigo_b64.encode('utf-8')).decode('utf-8'))
+        
         nome_importado = cart_bruto.pop('__meta_nome__', 'Carteira Importada')
+        dt_in_str = cart_bruto.pop('__meta_dt_inicio__', '2012-01-01')
+        dt_fim_str = cart_bruto.pop('__meta_dt_fim__', datetime.today().strftime('%Y-%m-%d'))
+        usar_dt_fim = cart_bruto.pop('__meta_usar_dt_fim__', False)
+        
+        dt_inicio = datetime.strptime(dt_in_str, '%Y-%m-%d').date()
+        dt_fim = datetime.strptime(dt_fim_str, '%Y-%m-%d').date()
+        
         cart = {}
         for k, v in cart_bruto.items():
             dt_compra = datetime.strptime(v['data_compra'], '%Y-%m-%d').date()
@@ -241,10 +266,11 @@ def importar_codigo_carteira(codigo_b64):
             else:
                 dt_venc = datetime.strptime(v['data_vencimento'], '%Y-%m-%d').date() if v.get('data_vencimento') else None
                 cart[k] = AtivoRF(nome=v['nome'], indexador=v['indexador'], taxa=v['taxa'], aporte=v['aporte'], data_compra=dt_compra, data_vencimento=dt_venc)
-        return cart, nome_importado
+                
+        return cart, nome_importado, dt_inicio, dt_fim, usar_dt_fim
     except Exception as e:
         logging.error(f"Erro importação: {e}")
-        return None, "Carteira Importada"
+        return None, "Carteira Importada", datetime(2012, 1, 1).date(), datetime.today().date(), False
 
 def ativar_modo_impressao(): st.session_state['modo_impressao'] = True
 def desativar_modo_impressao(): st.session_state['modo_impressao'] = False
@@ -344,8 +370,14 @@ if not st.session_state['started']:
             st.session_state['started'] = True
             st.session_state['carteira_alterada'] = False
             st.session_state['nome_carteira'] = "Minha Carteira"
-            dt_padrao = datetime(2012, 1, 1).date()
+            
+            st.session_state['data_inicio'] = datetime(2012, 1, 1).date()
+            st.session_state['data_fim'] = datetime.today().date()
+            st.session_state['usar_data_fim'] = False
+            
+            dt_padrao = st.session_state['data_inicio']
             dt_venc_padrao = datetime(2030, 1, 1).date()
+            
             st.session_state['carteira'] = {
                 'QQQ': AtivoRV(ticker='QQQ', aporte=10.0, data_compra=dt_padrao, setor='Tecnologia da Informação'),
                 'JEPI': AtivoRV(ticker='JEPI', aporte=10.0, data_compra=dt_padrao, setor='Outros'),
@@ -367,10 +399,14 @@ if not st.session_state['started']:
         
         if st.button("Carregar Trabalho", use_container_width=True):
             if codigo_salvo:
-                cart_importada, nome_imp = importar_codigo_carteira(codigo_salvo)
-                if cart_importada:
-                    st.session_state['carteira'] = cart_importada
-                    st.session_state['nome_carteira'] = nome_imp
+                resultado_importacao = importar_codigo_carteira(codigo_salvo)
+                if resultado_importacao[0]:
+                    st.session_state['carteira'] = resultado_importacao[0]
+                    st.session_state['nome_carteira'] = resultado_importacao[1]
+                    st.session_state['data_inicio'] = resultado_importacao[2]
+                    st.session_state['data_fim'] = resultado_importacao[3]
+                    st.session_state['usar_data_fim'] = resultado_importacao[4]
+                    
                     st.session_state['started'] = True
                     st.session_state['carteira_alterada'] = True 
                     st.rerun()
@@ -402,13 +438,18 @@ with st.sidebar:
         capital_inicial_input = 0.0 
         col_cap.text_input("Capital Total (R$)", value="Soma Automática", disabled=True)
         
-    data_inicio = col_dt.date_input("Data Inicial", value=datetime(2012,1,1), min_value=datetime(1900,1,1), max_value=datetime.today())
+    data_inicio = col_dt.date_input("Data Inicial", value=st.session_state['data_inicio'], min_value=datetime(1900,1,1).date(), max_value=datetime.today().date())
+    st.session_state['data_inicio'] = data_inicio
     
-    modificar_data_final = st.checkbox("Definir Data Final Específica?", value=False)
+    modificar_data_final = st.checkbox("Definir Data Final Específica?", value=st.session_state['usar_data_fim'])
+    st.session_state['usar_data_fim'] = modificar_data_final
+    
     if modificar_data_final:
-        data_fim = st.date_input("Data Final", value=datetime.today().date(), min_value=data_inicio, max_value=datetime.today().date())
+        data_fim = st.date_input("Data Final", value=st.session_state['data_fim'], min_value=data_inicio, max_value=datetime.today().date())
     else:
         data_fim = datetime.today().date()
+        
+    st.session_state['data_fim'] = data_fim
         
     with st.expander("📊 Parâmetros de Mercado & Benchmarks", expanded=False):
         opcoes_bench = ["Ibovespa", "IFIX", "S&P 500", "NASDAQ", "SMLL (Small Caps)", "Ouro", "IPCA + Taxa", "CDI (Percentual)", "Selic"]
@@ -435,7 +476,13 @@ with st.sidebar:
         
     with st.expander("💾 Salvar Trabalho & Comparar", expanded=False):
         st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**O SEU SAVE:** Copie o código abaixo.</span>", unsafe_allow_html=True)
-        codigo_export = exportar_codigo_carteira(st.session_state.carteira, st.session_state.nome_carteira)
+        codigo_export = exportar_codigo_carteira(
+            st.session_state.carteira, 
+            st.session_state.nome_carteira,
+            st.session_state.data_inicio,
+            st.session_state.data_fim,
+            st.session_state.usar_data_fim
+        )
         st.code(codigo_export if codigo_export else "Adicione ativos.")
         
         st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
@@ -443,11 +490,11 @@ with st.sidebar:
         reinvestir_comp = st.checkbox("Reinvestir Div. (Carteira Importada)", value=True)
         
         if st.button("Carregar Comparação", use_container_width=True):
-            cart_importada, nome_imp = importar_codigo_carteira(codigo_import)
-            if cart_importada:
-                st.session_state.carteira_comparacao = cart_importada
-                st.session_state.nome_carteira_comparacao = nome_imp
-                st.success(f"'{nome_imp}' carregada!")
+            res_comp = importar_codigo_carteira(codigo_import)
+            if res_comp[0]:
+                st.session_state.carteira_comparacao = res_comp[0]
+                st.session_state.nome_carteira_comparacao = res_comp[1]
+                st.success(f"'{res_comp[1]}' carregada!")
                 st.rerun()
                 
         if st.session_state.carteira_comparacao:
@@ -1003,6 +1050,24 @@ if st.session_state.carteira:
             st.subheader("4. Raio-X Individual")
             st.markdown(html_table_rx, unsafe_allow_html=True)
             
+        if st.session_state.get('rel_sec_comp', False) and st.session_state.get('rel_sec_sel'):
+            st.subheader("5. Comparação Setorial")
+            mask_sec = (idx_mestre >= pd.to_datetime(st.session_state.data_inicio)) & (idx_mestre <= pd.to_datetime(st.session_state.data_fim))
+            idx_sec_p = idx_mestre[mask_sec]
+            df_sec_p = pd.DataFrame(index=idx_sec_p)
+            
+            for s in st.session_state['rel_sec_sel']:
+                ret_sec_com, ret_sec_sem = processar_carteira(st.session_state.carteira, df_rv_com, df_rv_sem, cdi_al, ipca_al, idx_mestre, reinvestir, marcar_mercado_ativado, setor_filter=s)
+                ret_sec_final = ret_sec_com if reinvestir else ret_sec_sem
+                df_sec_p[s] = ((1 + ret_sec_final.loc[idx_sec_p]).cumprod() - 1) * 100
+                
+            fig_sec_print = px.line(df_sec_p, color_discrete_sequence=theme['chart_seq'])
+            fig_sec_print.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=theme['text_main']))
+            fig_sec_print.update_xaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']))
+            fig_sec_print.update_yaxes(gridcolor=theme['grid'], tickfont=dict(color=theme['text_sec']))
+            st.plotly_chart(fig_sec_print, use_container_width=True, config=PLOTLY_CONFIG, key="print_sec")
+            
+        st.markdown("<br>", unsafe_allow_html=True)
         c_b1, c_b2, c_b3 = st.columns([1,2,1])
         with c_b2:
             if st.button("🖨️ CONFIRMAR IMPRESSÃO / SALVAR PDF", use_container_width=True):
@@ -1210,8 +1275,8 @@ if st.session_state.carteira:
     with tabs[3]:
         st.markdown("### 📊 Análise Setorial")
         c_d1, c_d2 = st.columns(2)
-        dt_s = c_d1.date_input("Início:", value=data_inicio)
-        dt_e = c_d2.date_input("Fim:", value=data_fim)
+        dt_s = c_d1.date_input("Início:", value=st.session_state['data_inicio'])
+        dt_e = c_d2.date_input("Fim:", value=st.session_state['data_fim'])
         
         setores_totais = list(set([getattr(v, 'setor', 'Outros') if getattr(v, 'tipo', 'RV') == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
         set_sel = st.multiselect("Setores:", setores_totais, default=setores_totais[:3] if len(setores_totais)>=3 else setores_totais)
@@ -1345,7 +1410,7 @@ if st.session_state.carteira:
                 st.markdown("---")
                 st.markdown("### 📉 Cotação Histórica")
                 tipo_grafico_ativo = st.radio("Formato:", ["Linha", "Candlestick"], horizontal=True)
-                df_cotacao = yf.download(ativo_selecionado, start=data_inicio, end=pd.to_datetime(data_fim) + timedelta(days=1), progress=False)
+                df_cotacao = yf.download(ativo_selecionado, start=st.session_state['data_inicio'], end=pd.to_datetime(st.session_state['data_fim']) + timedelta(days=1), progress=False)
                 
                 if not df_cotacao.empty and 'Close' in df_cotacao:
                     if tipo_grafico_ativo == "Candlestick" and 'Open' in df_cotacao:
@@ -1364,13 +1429,33 @@ if st.session_state.carteira:
                     st.plotly_chart(fig_cot, use_container_width=True, config=PLOTLY_CONFIG)
 
     with tabs[tab_idx+1]:
-        st.markdown("### 📑 Relatório Dinâmico em PDF/PPT")
-        st.info("O sistema ajustará as cores dos gráficos para a cor selecionada na barra lateral. Ideal para colar direto no PowerPoint.")
+        st.markdown("### 📑 Painel de Exportação")
+        st.info("Aqui você configura o que deseja imprimir no seu relatório em PDF. O sistema ajustará as cores automaticamente.")
         
-        if st.button("📄 ACESSAR MODO DE IMPRESSÃO LIMPO", use_container_width=True):
-            ativar_modo_impressao()
-            st.rerun()
-            
+        c_rel1, c_rel2 = st.columns(2)
+        st.session_state['rel_comp'] = c_rel1.checkbox("Incluir Gráfico de Alocação e Pesos", value=st.session_state.get('rel_comp', True))
+        st.session_state['rel_metr'] = c_rel1.checkbox("Incluir Tabela Gráfica de Métricas", value=st.session_state.get('rel_metr', True))
+        st.session_state['rel_rent'] = c_rel2.checkbox("Incluir Gráfico de Evolução Patrimonial", value=st.session_state.get('rel_rent', True))
+        st.session_state['rel_rx'] = c_rel2.checkbox("Incluir Tabela Analítica (Raio-X de Ativos)", value=st.session_state.get('rel_rx', False))
+        
+        st.markdown("---")
+        st.session_state['rel_sec_comp'] = st.checkbox("Incluir Gráfico de Comparação Setorial", value=st.session_state.get('rel_sec_comp', False))
+        
+        if st.session_state['rel_sec_comp']:
+            setores_totais_rel = list(set([getattr(v, 'setor', 'Outros') if getattr(v, 'tipo', 'RV') == 'RV' else 'Renda Fixa' for v in st.session_state.carteira.values()]))
+            st.session_state['rel_sec_sel'] = st.multiselect(
+                "Selecione os Setores para o Relatório:", 
+                setores_totais_rel, 
+                default=st.session_state.get('rel_sec_sel', setores_totais_rel[:3] if len(setores_totais_rel)>=3 else setores_totais_rel)
+            )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        c_b1, c_b2, c_b3 = st.columns([1,2,1])
+        with c_b2:
+            if st.button("📄 ACESSAR MODO DE IMPRESSÃO LIMPO", use_container_width=True):
+                ativar_modo_impressao()
+                st.rerun()
+                
         st.markdown("---")
         st.markdown("### 📊 Tabela Transparente (Exportar via Câmera)")
         st.plotly_chart(plot_tabela_metricas(m_prin, nome_cart, theme), use_container_width=True, config=PLOTLY_CONFIG)
