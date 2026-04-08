@@ -66,8 +66,8 @@ def get_theme_colors(bg_hex):
             "line_base": "#1a1a1a",
             "win": "#008000", 
             "loss": "#CC0000",
-            "input_bg": "#ffffff",           # Branco sólido para caixas no tema claro
-            "input_border": "#cccccc",       # Borda cinza sutil
+            "input_bg": "#ffffff",           
+            "input_border": "#cccccc",       
             "chart_seq": ["#003f5c", "#d45087", "#2f4b7c", "#f95d6a", "#665191", "#ff7c43", "#a05195", "#ffa600"]
         }
     else:
@@ -82,8 +82,8 @@ def get_theme_colors(bg_hex):
             "line_base": "#ffffff",
             "win": "#4CAF50",
             "loss": "#F44336",
-            "input_bg": "#1a1a1a",           # Escuro sólido para caixas no tema escuro
-            "input_border": "#333333",       # Borda sutil escura
+            "input_bg": "#1a1a1a",           
+            "input_border": "#333333",       
             "chart_seq": ["#D4AF37", "#00BFFF", "#32CD32", "#FF6347", "#8A2BE2", "#FF69B4", "#00FA9A", "#FF4500"]
         }
 
@@ -127,9 +127,7 @@ st.markdown(f"""
     button[data-baseweb="tab"][aria-selected="true"] p {{ color: {theme['accent']} !important; font-weight: bold !important; }}
     button[data-baseweb="tab"][aria-selected="true"] {{ border-bottom-color: {theme['accent']} !important; }}
     
-    /* ======================================================== */
     /* CORREÇÃO DEFINITIVA DAS CAIXAS DE INPUT (SÓLIDAS) */
-    /* ======================================================== */
     .stTextInput input, 
     .stNumberInput input, 
     .stDateInput input,
@@ -143,18 +141,15 @@ st.markdown(f"""
         border-radius: 6px !important;
     }}
     
-    /* Evita fundos duplicados na caixa base do Streamlit */
     div[data-baseweb="base-input"] input {{
         background-color: transparent !important;
         border: none !important;
     }}
     
-    /* Textos dentro do Select/Dropdown */
     div[data-baseweb="select"] span {{
         color: {theme['text_main']} !important;
     }}
     
-    /* Tags de Multi-Select (ex: Benchmarks) */
     span[data-baseweb="tag"] {{
         background-color: {theme['accent']} !important; 
         color: #000000 !important; 
@@ -163,7 +158,6 @@ st.markdown(f"""
     span[data-baseweb="tag"] * {{
         color: #000000 !important; 
     }}
-    /* ======================================================== */
     
     hr {{ border-color: {theme['accent']} !important; opacity: 0.3; }}
     table {{ width: 100%; text-align: center; border-collapse: collapse; margin-bottom: 20px; color: {theme['text_main']} !important; }}
@@ -248,7 +242,6 @@ def importar_codigo_carteira(codigo_b64):
 
 def ativar_modo_impressao(): st.session_state['modo_impressao'] = True
 def desativar_modo_impressao(): st.session_state['modo_impressao'] = False
-
 
 # --- FUNÇÕES AUXILIARES DO MOTOR DE PESOS DINÂMICOS ---
 def garantir_dataclasses_state():
@@ -425,7 +418,7 @@ with st.sidebar:
             c_taxa2.number_input("IPCA Atual BCB (%)", value=4.5, disabled=True)
             
         reinvestir = st.checkbox("Reinvestir Dividendos na Carteira Principal", value=True)
-        marcar_mercado_ativado = st.checkbox("Marcação a Mercado (Aproximação RF)", value=False)
+        marcar_mercado_ativado = st.checkbox("Ativar Marcação a Mercado (Aproximação RF)", value=False)
         
     with st.expander("💾 Salvar Trabalho & Comparar", expanded=False):
         st.markdown("<span style='font-size:0.85em; opacity:0.8;'>**O SEU SAVE:** Copie o código abaixo.</span>", unsafe_allow_html=True)
@@ -434,7 +427,7 @@ with st.sidebar:
         
         st.markdown("<hr style='margin:10px 0;'>", unsafe_allow_html=True)
         codigo_import = st.text_input("Código de Comparação:")
-        reinvestir_comp = st.checkbox("Reinvestir Div. (Comparada)", value=True)
+        reinvestir_comp = st.checkbox("Reinvestir Div. (Carteira Importada)", value=True)
         
         if st.button("Carregar Comparação", use_container_width=True):
             cart_importada, nome_imp = importar_codigo_carteira(codigo_import)
@@ -452,6 +445,7 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("➕ Adicionar Ativos")
     
+    # --- OPÇÃO DE SLIDER SE FOR POR PESO ---
     if modo_aporte == "Por Peso (%)":
         st.session_state['usar_sliders'] = st.checkbox("Ativar Balanceamento Dinâmico (Sliders)", value=st.session_state.get('usar_sliders', False))
     else:
@@ -471,6 +465,7 @@ with st.sidebar:
         if st.button("Inserir Renda Variável") and ticker_add:
             if re.match(r'^[A-Z0-9\.\-\=]+$', ticker_add): 
                 st.session_state.carteira[ticker_add] = AtivoRV(ticker=ticker_add, aporte=aporte_val, data_compra=data_compra_rv, setor=setor_rv)
+                st.session_state['carteira_alterada'] = True
                 st.rerun()
             else:
                 st.error("Ticker inválido.")
@@ -479,6 +474,7 @@ with st.sidebar:
         c_rf1, c_rf2, c_rf3 = st.columns([1.5, 1.5, 1])
         tipo_rf_add = c_rf1.selectbox("Indexador", ["Prefixado", "CDI", "IPCA+"])
         
+        # --- CORREÇÃO DA UI DE RENDA FIXA ---
         if tipo_rf_add == "CDI":
             taxa_input_add = c_rf2.number_input("Percentual do CDI (%)", value=100.0, step=1.0)
         elif tipo_rf_add == "IPCA+":
@@ -495,10 +491,12 @@ with st.sidebar:
 
         if st.button("Inserir Renda Fixa") and nome_rf:
             st.session_state.carteira[nome_rf] = AtivoRF(nome=nome_rf, indexador=tipo_rf_add, taxa=taxa_input_add/100, aporte=aporte_val_rf, data_compra=data_compra_rf, data_vencimento=data_vencimento_rf)
+            st.session_state['carteira_alterada'] = True
             st.rerun()
             
     if st.button("🗑️ Limpar Carteira Principal"):
         st.session_state.carteira = {}
+        st.session_state['carteira_alterada'] = True
         st.rerun()
 
 # --- NORMALIZAÇÃO INICIAL DE SEGURANÇA (CASO SLIDERS LIGADOS) ---
@@ -676,7 +674,7 @@ def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m, th):
         st.warning("É preciso 2 ativos de RV para simular a Fronteira.")
         return
         
-    with st.spinner("Simulando 5.000 portfólios..."):
+    with st.spinner("Simulando 5.000 portfólios e calculando Fronteira Eficiente..."):
         ret_ativos = pd.DataFrame(index=idx_m)
         for t in ativos_rv_validos:
             rc = df_rv_c[t].pct_change().fillna(0)
@@ -700,6 +698,33 @@ def plot_markowitz(ativos_dict, df_rv_c, cdi_al, idx_m, th):
         
         fig = px.scatter(df_ef, x='Volatilidade', y='Retorno', color='Sharpe', color_continuous_scale='Viridis')
         fig.add_trace(go.Scatter(x=[p_max['Volatilidade']], y=[p_max['Retorno']], mode='markers', marker=dict(color='red', size=15, symbol='star'), name='Máximo Sharpe'))
+        
+        # --- LÓGICA DA LINHA DA FRONTEIRA EFICIENTE ---
+        min_vol_idx = df_ef['Volatilidade'].idxmin()
+        min_vol_ret = df_ef.loc[min_vol_idx, 'Retorno']
+        
+        df_upper = df_ef[df_ef['Retorno'] >= min_vol_ret].copy()
+        df_upper['Vol_Bin'] = (df_upper['Volatilidade'] * 500).round() / 500
+        
+        fronteira = df_upper.groupby('Vol_Bin')['Retorno'].max().reset_index()
+        fronteira = fronteira.sort_values('Vol_Bin')
+        
+        vols_linha = []
+        rets_linha = []
+        max_ret_atual = -np.inf
+        
+        for _, row in fronteira.iterrows():
+            if row['Retorno'] >= max_ret_atual:
+                vols_linha.append(row['Vol_Bin'])
+                rets_linha.append(row['Retorno'])
+                max_ret_atual = row['Retorno']
+        
+        fig.add_trace(go.Scatter(
+            x=vols_linha, y=rets_linha, 
+            mode='lines', 
+            line=dict(color=th['text_main'], width=2, dash='dot'), 
+            name='Fronteira Eficiente'
+        ))
         
         fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=th['text_main']))
         fig.update_xaxes(gridcolor=th['grid'], tickfont=dict(color=th['text_sec']))
@@ -735,19 +760,52 @@ def plot_correlation_matrix(ativos_dict, df_rv_c, idx_m, setor_filter, th):
         st.warning(f"Precisa de 2 ativos RV no setor '{setor_filter}'.")
         return
         
-    df_ret = pd.DataFrame(index=idx_m)
-    for t in ativos_rv:
-        r = df_rv_c[t].pct_change().fillna(0)
-        r[r.index < pd.to_datetime(ativos_dict[t].data_compra)] = np.nan 
-        df_ret[t] = r
+    with st.spinner(f"Calculando matriz de correlação para {len(ativos_rv)} ativos..."):
+        df_ret = pd.DataFrame(index=idx_m)
+        for t in ativos_rv:
+            r = df_rv_c[t].pct_change().fillna(0)
+            r[r.index < pd.to_datetime(ativos_dict[t].data_compra)] = np.nan 
+            df_ret[t] = r
+            
+        corr_matrix = df_ret.corr().fillna(0)
         
-    fig = px.imshow(df_ret.corr().fillna(0), text_auto=".2f", aspect="auto", color_continuous_scale="RdBu_r", zmin=-1, zmax=1, title=f"Correlação - {setor_filter}")
-    
-    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=th['text_main']))
-    fig.update_xaxes(tickfont=dict(color=th['text_main']))
-    fig.update_yaxes(tickfont=dict(color=th['text_main']))
-    
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        fig = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale="RdBu_r", zmin=-1, zmax=1, title=f"Correlação - {setor_filter}")
+        
+        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color=th['text_main']))
+        fig.update_xaxes(tickfont=dict(color=th['text_main']))
+        fig.update_yaxes(tickfont=dict(color=th['text_main']))
+        
+        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        
+        # --- DESTAQUES DA MATRIZ DE CORRELAÇÃO ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='color: {th['accent']};'>🔍 Destaques da Matriz</h4>", unsafe_allow_html=True)
+        
+        if len(ativos_rv) > 2:
+            # Pega apenas a parte superior da matriz para evitar pares duplicados e a diagonal (1.0)
+            upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+            corr_pairs = upper_tri.unstack().dropna().sort_values(ascending=False)
+            
+            if len(corr_pairs) >= 2:
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Maiores Correlações (Movimento Similar):**")
+                    top_2 = corr_pairs.head(2)
+                    for (ativo1, ativo2), val in top_2.items():
+                        st.info(f"**{ativo1} & {ativo2}**: {val:.2f}")
+                        
+                with c2:
+                    st.markdown("**Menores Correlações (Proteção/Movimento Oposto):**")
+                    bottom_2 = corr_pairs.sort_values(ascending=True).head(2)
+                    for (ativo1, ativo2), val in bottom_2.items():
+                        st.error(f"**{ativo1} & {ativo2}**: {val:.2f}")
+        elif len(ativos_rv) == 2:
+            ativo1, ativo2 = ativos_rv[0], ativos_rv[1]
+            val = corr_matrix.loc[ativo1, ativo2]
+            if val >= 0:
+                st.info(f"**{ativo1} & {ativo2}**: {val:.2f}")
+            else:
+                st.error(f"**{ativo1} & {ativo2}**: {val:.2f}")
 
 def plot_monte_carlo(ret_portfolio, capital_inicial, th):
     if ret_portfolio.empty or ret_portfolio.std() == 0:
@@ -812,8 +870,6 @@ nome_cart = st.session_state.get('nome_carteira', 'Minha Carteira')
 nome_comp = st.session_state.get('nome_carteira_comparacao', 'Carteira Importada')
 
 # --- EXECUÇÃO DO MOTOR ---
-garantir_dataclasses_state()
-
 if st.session_state.carteira:
     ativos_rv_principal = [k for k, v in st.session_state.carteira.items() if getattr(v, 'tipo', 'RV') == 'RV']
     ativos_rv_comp = [k for k, v in st.session_state.carteira_comparacao.items() if getattr(v, 'tipo', 'RV') == 'RV']
@@ -862,7 +918,6 @@ if st.session_state.carteira:
     ret_portfolio_principal = ret_port_com if reinvestir else ret_port_sem
     
     if st.session_state.carteira_comparacao:
-        garantir_dataclasses_state_comparacao()
         ret_comp_com, ret_comp_sem = processar_carteira(st.session_state.carteira_comparacao, df_rv_com, df_rv_sem, cdi_al, ipca_al, idx_mestre, reinvestir_comp, False)
         ret_portfolio_comparacao = ret_comp_com if reinvestir_comp else ret_comp_sem
 
